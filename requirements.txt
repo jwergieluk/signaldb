@@ -1,1 +1,4 @@
 pymongo==3.3.1
+python-dateutil==2.6.0
+six==1.10.0
+tonyg-rfc3339==0.1
