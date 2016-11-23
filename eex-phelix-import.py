@@ -110,39 +110,4 @@ if __name__ == "__main__":
     data_1 = flatten(data)
     data_2 = set_field_types(data_1)
     data_3 = categorize_fields(data_2)
-    pprint.pprint(len(data_3))
-
-"""
-{
-'contract_field:timestamp_of_occurrence': '2016-11-22T18:52:57+01:00',
-
- 'noOfTradedContractsExchange': 0.0,
- 'noOfTradedContractsOtc': 0.0,
- 'noOfTradedContractsTotal': 0.0,
- 'openInterestNoOfContracts': 300.0,
- 'openInterestPrice': 13614.0,
- 'openInterestVolume': 3600.0,
- 'settlementPrice': 45.38,
- 'volumeExchange': 0.0,
- 'volumeOtc': 0.0,
- 'volumeTotal': 0.0
-'contract_field:volume': 12.0,
-
- 'contract_field:contract_code': '2016.11',
- 'contract_field:delivery_from': '2016-11-22T00:00:00+01:00',
- 'contract_field:delivery_until': '2016-11-22T23:59:59+01:00',
- 'contract_field:expiry_date': '2016-11-22T00:00:00+01:00',
- 'contract_field:identifier': 'C-Power-F-DEAT-Peak-Day-2016.11.22',
- 'contract_field:product_code': 'FP22',
- 'contract_field:trading_from': '2016-11-14T00:00:00+01:00',
- 'contract_field:trading_until': '2016-11-21T23:59:59+01:00',
-
- 'product_field:currency': 'EUR',
- 'product_field:identifier': 'P-Power-F-DEAT-Peak-Day',
- 'product_field:name': 'Phelix Peak Day Future',
- 'product_field:unit': 'EUR/MWh',
-
- 'external_code:bloomberg': 'FPDAILY Comdty',
- 'external_code:reuters': '0#EEXFP:',
- }
-"""
+    pprint.pprint(data_3)
