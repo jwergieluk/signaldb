@@ -2,6 +2,8 @@
 
 import json
 import pprint
+
+import pytz
 import rfc3339
 
 
@@ -26,7 +28,9 @@ def flatten(tree):
 
 
 def str_to_datetime(s):
-    return rfc3339.parse_datetime(s)
+    d = rfc3339.parse_datetime(s)
+    utc_time_zone = pytz.timezone('UTC')
+    return d.astimezone(utc_time_zone).replace(tzinfo=None)
 
 
 def set_field_types(contracts):
