@@ -2,6 +2,7 @@
 
 import json
 import pprint
+import traceback
 
 import pytz
 import rfc3339
@@ -48,6 +49,7 @@ def set_field_types(contracts):
             for key in c.keys() & cast_map.keys():
                 c[key] = cast_map[key](c[key])
         except ValueError:
+            print("# ERROR: set_field_types: Invalid contract %s." % c.__str__())
             continue
         processed_contracts.append(c)
     return processed_contracts
@@ -55,15 +57,17 @@ def set_field_types(contracts):
 
 def categorize_fields(contracts):
     processed_contracts = []
-    series_fields = ['noOfTradedContractsExchange', 'noOfTradedContractsOtc', 'noOfTradedContractsTotal',
+    series_fields = {'noOfTradedContractsExchange', 'noOfTradedContractsOtc', 'noOfTradedContractsTotal',
                      'openInterestNoOfContracts', 'openInterestPrice', 'openInterestVolume', 'settlementPrice',
-                     'volumeExchange', 'volumeOtc', 'volumeTotal']
-    static_fields = ['contract_field:delivery_from', 'contract_field:delivery_until',
+                     'volumeExchange', 'volumeOtc', 'volumeTotal'}
+    static_fields = {'contract_field:delivery_from', 'contract_field:delivery_until',
                      'contract_field:expiry_date', 'contract_field:product_code',
                      'contract_field:trading_from', 'contract_field:trading_until', 'product_field:currency',
-                     'product_field:identifier', 'product_field:name', 'product_field:unit', 'contract_field:volume']
-    ticker_fields = ['external_code:bloomberg', 'external_code:reuters', 'contract_field:identifier']
-    name_mapping = {k: k for k in series_fields + static_fields + ticker_fields}
+                     'product_field:identifier', 'product_field:name', 'product_field:unit', 'contract_field:volume'}
+    ticker_fields = {'external_code:bloomberg', 'external_code:reuters', 'contract_field:identifier'}
+    required_fields = {'settlementPrice', 'volumeTotal', 'contract_field:identifier', 'contract_field:delivery_from',
+                       'contract_field:delivery_until', 'contract_field:volume'}
+    name_mapping = {k: k for k in series_fields | static_fields | ticker_fields}
     name_mapping['contract_field:contract_code'] = 'contract_code'
     name_mapping['contract_field:delivery_from'] = 'delivery_from'
     name_mapping['contract_field:delivery_until'] = 'delivery_until'
@@ -80,13 +84,19 @@ def categorize_fields(contracts):
     name_mapping['external_code:reuters'] = 'reuters'
     name_mapping['contract_field:volume'] = 'contract_volume'
     for c in contracts:
+        if not all([k in c.keys() for k in required_fields]):
+            continue
+        if c['volumeTotal'] <= 0.0:
+            continue
         contract = {'static': {}, 'series': {}}
         try:
             contract['t'] = c['contract_field:timestamp_of_occurrence']
-            contract['series'] = {name_mapping[k]: c[k] for k in series_fields}
-            contract['static'] = {name_mapping[k]: c[k] for k in static_fields}
-            contract['static']['ticker'] = {name_mapping[k]: c[k] for k in ticker_fields}
+            contract['series'] = {name_mapping[k]: c[k] for k in series_fields & c.keys()}
+            contract['static'] = {name_mapping[k]: c[k] for k in static_fields & c.keys()}
+            contract['static']['ticker'] = {name_mapping[k]: c[k] for k in ticker_fields & c.keys()}
         except LookupError:
+            print("# ERROR: categorize_fields: Invalid contract %s." % c.__str__())
+            print(traceback.format_exc())
             continue
         processed_contracts.append(contract)
     return processed_contracts
@@ -100,7 +110,7 @@ if __name__ == "__main__":
     data_1 = flatten(data)
     data_2 = set_field_types(data_1)
     data_3 = categorize_fields(data_2)
-    pprint.pprint(data_3)
+    pprint.pprint(len(data_3))
 
 """
 {
