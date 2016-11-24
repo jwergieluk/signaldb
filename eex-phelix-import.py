@@ -3,9 +3,10 @@
 import json
 import pprint
 import traceback
-
 import pytz
 import rfc3339
+import signaldb
+from collections import OrderedDict
 
 
 def flatten(tree):
@@ -91,9 +92,12 @@ def categorize_fields(contracts):
         contract = {'static': {}, 'series': {}}
         try:
             contract['t'] = c['contract_field:timestamp_of_occurrence']
-            contract['series'] = {name_mapping[k]: c[k] for k in series_fields & c.keys()}
-            contract['static'] = {name_mapping[k]: c[k] for k in static_fields & c.keys()}
-            contract['static']['ticker'] = {name_mapping[k]: c[k] for k in ticker_fields & c.keys()}
+            series_dict = {name_mapping[k]: c[k] for k in series_fields & c.keys()}
+            static_dict = {name_mapping[k]: c[k] for k in static_fields & c.keys()}
+            ticker_dict = {name_mapping[k]: c[k] for k in ticker_fields & c.keys()}
+            contract['series'] = OrderedDict(sorted(series_dict.items(), key=lambda k: k[0]))
+            contract['static'] = OrderedDict(sorted(static_dict.items(), key=lambda k: k[0]))
+            contract['static']['ticker'] = OrderedDict(sorted(ticker_dict.items(), key=lambda k: k[0]))
         except LookupError:
             print("# ERROR: categorize_fields: Invalid contract %s." % c.__str__())
             print(traceback.format_exc())
@@ -103,6 +107,7 @@ def categorize_fields(contracts):
 
 
 if __name__ == "__main__":
+    signal_db = signaldb.SignalDb()
     input_file = r'/home/julian/sync/kumo/scrapyard/20161122-phelix-futures-detail.json'
     with open(input_file, 'r') as f:
         data = json.load(f)
@@ -110,4 +115,6 @@ if __name__ == "__main__":
     data_1 = flatten(data)
     data_2 = set_field_types(data_1)
     data_3 = categorize_fields(data_2)
-    pprint.pprint(data_3)
+    for instrument in data_3:
+        signal_db.try_save_instrument(instrument, "eex", "eex.phelix.futures")
+        break
