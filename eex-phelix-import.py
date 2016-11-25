@@ -1,11 +1,14 @@
 #!/bin/env python3
 
 import json
+import os
 import pprint
 import traceback
 import pytz
 import rfc3339
 import signaldb
+import datetime
+from bson.objectid import ObjectId
 from collections import OrderedDict
 
 
@@ -35,6 +38,12 @@ def str_to_datetime(s):
     return d.astimezone(utc_time_zone).replace(tzinfo=None)
 
 
+def str_to_ticker_list(s):
+    if '/' not in s:
+        return s
+    return s.split('/')
+
+
 def set_field_types(contracts):
     cast_map = dict()
     cast_map['contract_field:delivery_from'] = str_to_datetime
@@ -43,6 +52,8 @@ def set_field_types(contracts):
     cast_map['contract_field:trading_until'] = str_to_datetime
     cast_map['contract_field:expiry_date'] = str_to_datetime
     cast_map['contract_field:timestamp_of_occurrence'] = str_to_datetime
+    cast_map['external_code:bloomberg'] = str_to_ticker_list
+    cast_map['external_code:reuters'] = str_to_ticker_list
 
     processed_contracts = []
     for c in contracts:
@@ -106,15 +117,47 @@ def categorize_fields(contracts):
     return processed_contracts
 
 
+def correct_observation_time(contracts, observation_date):
+    for c in contracts:
+        if c['t'].date() != observation_date.date():
+            observation_date = observation_date.replace(hour=17, minute=30)
+            c['t'] = observation_date
+
+
+class JSONEncoderExtension(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime.datetime):
+            return rfc3339.datetimetostr(obj)
+        if isinstance(obj, ObjectId):
+            return str(obj)
+
+        # Let the base class default method raise the TypeError
+        return json.JSONEncoder.default(self, obj)
+
+
 if __name__ == "__main__":
     signal_db = signaldb.SignalDb()
-    input_file = r'/home/julian/sync/kumo/scrapyard/20161122-phelix-futures-detail.json'
-    with open(input_file, 'r') as f:
-        data = json.load(f)
+    input_dir = r'/home/julian/sync/kumo/scrapyard/'
+    output_dir = r'/home/julian/sync/signaldb/tmp/'
+    for input_file in os.listdir(input_dir):
+        if not input_file.endswith('-phelix-futures-detail.json'):
+            continue
 
-    data_1 = flatten(data)
-    data_2 = set_field_types(data_1)
-    data_3 = categorize_fields(data_2)
-    for instrument in data_3:
-        signal_db.try_save_instrument(instrument, "eex", "eex.phelix.futures")
-        break
+        print('# INFO: Processing %s.' % input_file)
+        with open(os.path.join(input_dir, input_file), 'r') as f:
+            data = json.load(f)
+
+        data_1 = flatten(data)
+        data_2 = set_field_types(data_1)
+        data_3 = categorize_fields(data_2)
+        date_from_file_name = datetime.datetime.strptime(input_file.split("-")[0], "%Y%m%d")
+        correct_observation_time(data_3, date_from_file_name)
+        for instrument in data_3:
+            signal_db.try_save_instrument(instrument, "eex", "eex.phelix.futures")
+
+        output_file = os.path.join(output_dir, input_file)
+        if os.path.exists(output_file):
+            print("# ERROR: Output file \"%s\" not overwritten." % output_file)
+            continue
+        with open(output_file, 'w') as g:
+            json.dump(data_3, g, cls=JSONEncoderExtension)

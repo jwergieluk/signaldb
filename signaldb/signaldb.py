@@ -1,6 +1,8 @@
 #!/bin/env python3
 
 import os
+import pprint
+
 import pymongo
 import pymongo.errors
 from bson.objectid import ObjectId
@@ -23,6 +25,10 @@ class SignalDb:
 
     @staticmethod
     def check_instrument(instrument, ticker_name):
+        if not all([k in instrument.keys() for k in ['t', 'static', 'series']]):
+            return False
+        if ticker_name not in instrument['static']['ticker']:
+            return False
         return True
 
     @staticmethod
@@ -38,6 +44,7 @@ class SignalDb:
 
     def try_save_instrument(self, instrument, ticker_name, collection_name):
         if not self.check_instrument(instrument, ticker_name):
+            print("# ERROR: SignalDb.try_save_instrument: %s has wrong type." % ticker_name)
             return False
         if collection_name not in self.db.collection_names():
             self.db.create_collection(collection_name)
@@ -54,16 +61,19 @@ class SignalDb:
             instrument["static"]["series"] = series_ref
             result = self.db[collection_name].insert_one(instrument['static'])
             if result is None:
+                print("# ERROR: SignalDb.try_save_instrument: %s not inserted." % ticker)
                 return False
         else:
             series_ref = OrderedDict(sorted(static_record["series"].items(), key=lambda k: k[0]))
 
         series_observations = SignalDb.extract_series(instrument['t'], instrument['series'], series_ref)
-        try:
-            result = self.db['series'].insert_many(series_observations)
-        except pymongo.errors.BulkWriteError:
-            return False
-        return len(result.inserted_ids) == len(series_observations)
+        for observation in series_observations:
+            try:
+                self.db['series'].insert_one(observation)
+            except pymongo.errors.DuplicateKeyError:
+                print("# ERROR: Saving observation failed due to unique key (t,k) constraint.")
+                continue
+        return True
 
 
 
