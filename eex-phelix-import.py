@@ -41,9 +41,12 @@ class JSONEncoderExtension(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-class ProcessEexPhelixFuturesDetail:
-    @staticmethod
-    def flatten(tree):
+class ProcessFuturesDetail:
+    market_db = "eex"
+    target_collection = "eex.phelix.futures"
+
+    @classmethod
+    def flatten(cls, tree):
         try:
             tree = tree['data']
         except LookupError:
@@ -62,8 +65,8 @@ class ProcessEexPhelixFuturesDetail:
                 pass
         return level_2
 
-    @staticmethod
-    def set_field_types(contracts):
+    @classmethod
+    def set_field_types(cls, contracts):
         cast_map = dict()
         cast_map['contract_field:delivery_from'] = str_to_datetime
         cast_map['contract_field:delivery_until'] = str_to_datetime
@@ -85,8 +88,8 @@ class ProcessEexPhelixFuturesDetail:
             processed_contracts.append(c)
         return processed_contracts
 
-    @staticmethod
-    def categorize_fields(contracts):
+    @classmethod
+    def categorize_fields(cls, contracts):
         processed_contracts = []
         series_fields = {'noOfTradedContractsExchange', 'noOfTradedContractsOtc', 'noOfTradedContractsTotal',
                          'openInterestNoOfContracts', 'openInterestPrice', 'openInterestVolume', 'settlementPrice',
@@ -135,15 +138,15 @@ class ProcessEexPhelixFuturesDetail:
             processed_contracts.append(contract)
         return processed_contracts
 
-    @staticmethod
-    def correct_observation_time(contracts, observation_date):
+    @classmethod
+    def correct_observation_time(cls, contracts, observation_date):
         for c in contracts:
             if c['t'].date() != observation_date.date():
                 observation_date = observation_date.replace(hour=17, minute=30)
                 c['t'] = observation_date
 
-    @staticmethod
-    def run():
+    @classmethod
+    def run(cls):
         signal_db = signaldb.SignalDb()
         input_dir = get_market_data_dir('eex-phelix-futures-detail', '1')
         output_dir = get_market_data_dir('eex-phelix-futures-detail', '2')
@@ -152,13 +155,13 @@ class ProcessEexPhelixFuturesDetail:
             with open(os.path.join(input_dir, input_file), 'r') as f:
                 data = json.load(f)
 
-            data_1 = ProcessEexPhelixFuturesDetail.flatten(data)
-            data_2 = ProcessEexPhelixFuturesDetail.set_field_types(data_1)
-            data_3 = ProcessEexPhelixFuturesDetail.categorize_fields(data_2)
+            data_1 = cls.flatten(data)
+            data_2 = cls.set_field_types(data_1)
+            data_3 = cls.categorize_fields(data_2)
             date_from_file_name = datetime.datetime.strptime(input_file.split("-")[0], "%Y%m%d")
-            ProcessEexPhelixFuturesDetail.correct_observation_time(data_3, date_from_file_name)
+            cls.correct_observation_time(data_3, date_from_file_name)
             for instrument in data_3:
-                signal_db.try_save_instrument(instrument, "eex", "eex.phelix.futures")
+                signal_db.try_save_instrument(instrument, cls.market_db, cls.target_collection)
 
             output_file = os.path.join(output_dir, input_file)
             if os.path.exists(output_file):
@@ -168,14 +171,45 @@ class ProcessEexPhelixFuturesDetail:
                 json.dump(data_3, g, cls=JSONEncoderExtension)
 
 
-class ProcessEexPhelixFuturesPrices():
-    @staticmethod
-    def run():
+class ProcessFuturesPrices:
+    phelix_futures_collection = ""
+
+    @classmethod
+    def run(cls):
         signal_db = signaldb.SignalDb()
         input_dir = get_market_data_dir('eex-phelix-futures-prices', '1')
-        output_dir = get_market_data_dir('eex-phelix-futures-prices', '2')
+        for input_file in os.listdir(input_dir):
+            print('# INFO: Processing %s.' % input_file)
+            with open(os.path.join(input_dir, input_file), 'r') as f:
+                data = json.load(f)
+
+            try:
+                time_series = ProcessFuturesPrices.extract_time_series(data)
+                ticker = ProcessFuturesPrices.extract_ticker(data)
+            except LookupError:
+                print("# ERROR: ProcessFuturesPrices: %s has unexpected structure." % input_file)
+                continue
+            except ValueError:
+                print("# ERROR: ProcessFuturesPrices: Error while parsing data in %s." % input_file)
+                continue
+
+            signal_db.append_series_to_instrument('eex', ticker, "price", time_series, cls.phelix_futures_collection)
+            break
+
+    @classmethod
+    def extract_time_series(cls, data):
+        time_value_pairs = []
+        for observation in data['series']:
+            time_stamp = datetime.datetime.fromtimestamp(observation[0]/1000)
+            value = observation[1]
+            time_value_pairs.append([time_stamp, value])
+        return time_value_pairs
+
+    @classmethod
+    def extract_ticker(cls, data):
+        return data['contractIdentifier']
 
 
 if __name__ == "__main__":
-    ProcessEexPhelixFuturesPrices.run()
+    ProcessFuturesPrices.run()
 
