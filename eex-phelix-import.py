@@ -172,7 +172,7 @@ class ProcessFuturesDetail:
 
 
 class ProcessFuturesPrices:
-    phelix_futures_collection = ""
+    phelix_futures_collection = "eex.phelix.futures"
 
     @classmethod
     def run(cls):
@@ -193,8 +193,7 @@ class ProcessFuturesPrices:
                 print("# ERROR: ProcessFuturesPrices: Error while parsing data in %s." % input_file)
                 continue
 
-            signal_db.append_series_to_instrument('eex', ticker, "price", time_series, cls.phelix_futures_collection)
-            break
+            signal_db.append_series_to_instrument('eex', ticker, 'price', time_series, cls.phelix_futures_collection)
 
     @classmethod
     def extract_time_series(cls, data):

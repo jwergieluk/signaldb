@@ -1,6 +1,7 @@
 #!/bin/env python3
 
 import os
+import pdb
 import pprint
 import pymongo
 import pymongo.errors
@@ -44,7 +45,8 @@ class SignalDb:
     def __check_collections(self, *collections):
         for collection in collections:
             if collection not in self.db.collection_names():
-                raise ValueError("Collection %s not found" % collection)
+                print("# ERROR: Collection %s not found" % collection)
+                raise ValueError
 
     def try_save_instrument(self, instrument, ticker_name, collection_name):
         if not self.__check_instrument(instrument, ticker_name):
@@ -70,25 +72,19 @@ class SignalDb:
         else:
             series_ref = OrderedDict(sorted(static_record["series"].items(), key=lambda k: k[0]))
 
-        series_observations = SignalDb.__extract_series(instrument['t'], instrument['series'], series_ref)
-        for observation in series_observations:
-            try:
-                self.db['series'].insert_one(observation)
-            except pymongo.errors.DuplicateKeyError:
-                print("# ERROR: Saving observation failed due to unique key (t,k) constraint.")
-                continue
+        series = SignalDb.__extract_series(instrument['t'], instrument['series'], series_ref)
+        self.__upload_series(series_collection_name, series)
         return True
 
-    def __check_add_series(self, collection_name, instrument_doc, series_name):
+    def __check_add_series_ref(self, collection_name, instrument_doc, series_name):
         new_series_id = ObjectId()
         if 'series' not in instrument_doc.keys():
             instrument_doc['series'] = dict(series_name=new_series_id)
-        elif series_name not in instrument_doc['series']:
+        elif series_name not in instrument_doc['series'].keys():
             instrument_doc['series'][series_name] = new_series_id
         else:
-            return
+            return True
 
-        instrument_doc['series'] = dict(series_name=new_series_id)
         result = self.db[collection_name].update_one({'_id': instrument_doc['_id']},
                                                      {'$set': {'series.' + series_name: new_series_id}})
         if not result.acknowledged:
@@ -97,39 +93,40 @@ class SignalDb:
             return False
         return True
 
-    def append_series_to_instrument(self, ticker_name: str, ticker_value, series_name: str, time_series,
+    def append_series_to_instrument(self, ticker_provider: str, ticker, series_name: str, series,
                                     collection_name: str):
         # TODO add time_series validation
         series_collection_name = collection_name + ".series"
         self.__check_collections(collection_name, series_collection_name)
 
-        ticker_full_name = "ticker." + ticker_name
-        instrument = self.db[collection_name].find_one({ticker_full_name: ticker_value})
+        ticker_full_name = "ticker." + ticker_provider
+        instrument = self.db[collection_name].find_one({ticker_full_name: ticker})
         if instrument is None:
-            print('# ERROR: Instrument %s not found.' % ticker_name)
+            print('# ERROR: Instrument %s not found.' % ticker)
             return
 
-        if not self.__check_add_series(collection_name, instrument, series_name):
-            print('# ERROR: Unable to update instrument %s.' % ticker_name)
+        if not self.__check_add_series_ref(collection_name, instrument, series_name):
+            print('# ERROR: Unable to update instrument %s.' % ticker)
             return False
 
-        decorated_series = self.__decorate_series(time_series, instrument['series'][series_name])
-        return False
+        decorated_series = self.__decorate_series(series, instrument['series'][series_name])
         if not self.__upload_series(series_collection_name, decorated_series):
             return False
         return True
 
     @staticmethod
-    def __decorate_series(time_series, series_id):
+    def __decorate_series(time_series, series_id: ObjectId):
         observations = []
         for p in time_series:
-            observations.append(dict(t=p[0], k=series_id, v=p[1]))
+            observations.append(OrderedDict(t=p[0], k=series_id, v=p[1]))
+            print(p[0], series_id, p[1])
         return observations
 
-    def __upload_series(self, series_collection_name, series):
+    def __upload_series(self, collection_name: str, series):
         for observation in series:
             try:
-                self.db[series_collection_name].insert_one(observation)
+                self.db[collection_name].insert_one(observation)
             except pymongo.errors.DuplicateKeyError:
-                print('# ERROR: Saving observation failed due to unique key (t,k) constraint.')
+                print('# ERROR: Saving observation failed due to unique key (%s,%s) constraint.' %
+                      (str(observation['t']), str(observation['k'])))
                 continue
