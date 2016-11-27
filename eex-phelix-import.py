@@ -2,7 +2,7 @@
 
 import json
 import os
-import pprint
+import logging
 import traceback
 import pytz
 import rfc3339
@@ -179,7 +179,7 @@ class ProcessFuturesPrices:
         signal_db = signaldb.SignalDb()
         input_dir = get_market_data_dir('eex-phelix-futures-prices', '1')
         for input_file in os.listdir(input_dir):
-            print('# INFO: Processing %s.' % input_file)
+            logger.info('Processing %s.' % input_file)
             with open(os.path.join(input_dir, input_file), 'r') as f:
                 data = json.load(f)
 
@@ -187,13 +187,14 @@ class ProcessFuturesPrices:
                 time_series = ProcessFuturesPrices.extract_time_series(data)
                 ticker = ProcessFuturesPrices.extract_ticker(data)
             except LookupError:
-                print("# ERROR: ProcessFuturesPrices: %s has unexpected structure." % input_file)
+                logger.error("ProcessFuturesPrices: %s has unexpected structure." % input_file)
                 continue
             except ValueError:
-                print("# ERROR: ProcessFuturesPrices: Error while parsing data in %s." % input_file)
+                logger.error("ProcessFuturesPrices: Error while parsing data in %s." % input_file)
                 continue
 
             signal_db.append_series_to_instrument('eex', ticker, 'price', time_series, cls.phelix_futures_collection)
+            break
 
     @classmethod
     def extract_time_series(cls, data):
@@ -210,5 +211,13 @@ class ProcessFuturesPrices:
 
 
 if __name__ == "__main__":
+    logger = logging.getLogger('eex_phelix_import')
+    root_logger = logging.getLogger('')
+    root_logger.setLevel(logging.DEBUG)
+    console = logging.StreamHandler()
+    formatter = logging.Formatter('# %(levelname)s: %(asctime)s %(name)s %(message)s')
+    console.setFormatter(formatter)
+    root_logger.addHandler(console)
+
     ProcessFuturesPrices.run()
 

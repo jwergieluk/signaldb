@@ -1,8 +1,7 @@
 #!/bin/env python3
 
 import os
-import pdb
-import pprint
+import logging
 import pymongo
 import pymongo.errors
 from bson.objectid import ObjectId
@@ -11,12 +10,14 @@ from collections import OrderedDict
 
 class SignalDb:
     def __init__(self):
+        self.logger = logging.getLogger('signal.SignalDb')
+        self.logger.setLevel(logging.DEBUG)
         cred = {"sdbHost": "192.168.0.16", "sdbPort": 27017, "sdbUser": "worker", "sdbPwd": ""}
         for key in os.environ.keys() & cred.keys():
             try:
                 cred[key] = type(cred[key])(os.environ[key])
             except ValueError:
-                print("ERROR: %s: Reading connection info failed: no %s in env." % key)
+                self.logger.error("Reading connection info failed: no %s in env." % key)
                 raise SystemError
 
         self.mongo_client = pymongo.MongoClient(cred["sdbHost"], cred["sdbPort"])
@@ -45,12 +46,12 @@ class SignalDb:
     def __check_collections(self, *collections):
         for collection in collections:
             if collection not in self.db.collection_names():
-                print("# ERROR: Collection %s not found" % collection)
+                self.logger.error("__check_collections: Collection %s not found" % collection)
                 raise ValueError
 
     def try_save_instrument(self, instrument, ticker_name, collection_name):
         if not self.__check_instrument(instrument, ticker_name):
-            print("# ERROR: SignalDb.try_save_instrument: %s has wrong type." % ticker_name)
+            self.logger.error("try_save_instrument: %s has wrong type." % ticker_name)
             return False
         series_collection_name = collection_name + ".series"
         self.__check_collections(collection_name, series_collection_name)
@@ -67,7 +68,7 @@ class SignalDb:
             instrument["static"]["series"] = series_ref
             result = self.db[collection_name].insert_one(instrument['static'])
             if result is None:
-                print("# ERROR: SignalDb.try_save_instrument: %s not inserted." % ticker)
+                self.logger.error("try_save_instrument: %s not inserted." % ticker)
                 return False
         else:
             series_ref = OrderedDict(sorted(static_record["series"].items(), key=lambda k: k[0]))
@@ -102,11 +103,11 @@ class SignalDb:
         ticker_full_name = "ticker." + ticker_provider
         instrument = self.db[collection_name].find_one({ticker_full_name: ticker})
         if instrument is None:
-            print('# ERROR: Instrument %s not found.' % ticker)
+            self.logger.error('# ERROR: Instrument %s not found.' % ticker)
             return
 
         if not self.__check_add_series_ref(collection_name, instrument, series_name):
-            print('# ERROR: Unable to update instrument %s.' % ticker)
+            self.logger.error('Unable to update instrument %s.' % ticker)
             return False
 
         decorated_series = self.__decorate_series(series, instrument['series'][series_name])
@@ -119,14 +120,15 @@ class SignalDb:
         observations = []
         for p in time_series:
             observations.append(OrderedDict(t=p[0], k=series_id, v=p[1]))
-            print(p[0], series_id, p[1])
         return observations
 
     def __upload_series(self, collection_name: str, series):
+        duplicates_no = 0
         for observation in series:
             try:
                 self.db[collection_name].insert_one(observation)
             except pymongo.errors.DuplicateKeyError:
-                print('# ERROR: Saving observation failed due to unique key (%s,%s) constraint.' %
-                      (str(observation['t']), str(observation['k'])))
+                duplicates_no += 1
                 continue
+        if duplicates_no > 0:
+            self.logger.warn('%d duplicate observations discarded (out of %d).' % (duplicates_no, len(series)))
