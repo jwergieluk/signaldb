@@ -6,7 +6,7 @@ import pymongo
 import pymongo.errors
 from bson.objectid import ObjectId
 from collections import OrderedDict
-
+import pandas
 
 class SignalDb:
     def __init__(self):
@@ -103,8 +103,8 @@ class SignalDb:
         ticker_full_name = "ticker." + ticker_provider
         instrument = self.db[collection_name].find_one({ticker_full_name: ticker})
         if instrument is None:
-            self.logger.error('# ERROR: Instrument %s not found.' % ticker)
-            return
+            self.logger.error('Instrument %s not found.' % ticker)
+            return False
 
         if not self.__check_add_series_ref(collection_name, instrument, series_name):
             self.logger.error('Unable to update instrument %s.' % ticker)
@@ -132,3 +132,41 @@ class SignalDb:
                 continue
         if duplicates_no > 0:
             self.logger.warn('%d duplicate observations discarded (out of %d).' % (duplicates_no, len(series)))
+
+    def get_series(self, collection_name: str, ticker_provider: str, ticker: str, series_name: str = ""):
+        series_collection_name = collection_name + ".series"
+        self.__check_collections(collection_name, series_collection_name)
+
+        ticker_full_name = "ticker." + ticker_provider
+        instrument = self.db[collection_name].find_one({ticker_full_name: ticker})
+        if instrument is None:
+            self.logger.error('Instrument %s not found.' % ticker)
+            return None
+
+        if 'series' not in instrument.keys():
+            self.logger.error('Instrument %s has no series attached.' % ticker_full_name)
+            return None
+
+        if len(series_name) == 0:
+            if len(instrument['series']) == 0:
+                self.logger.warn('Instrument %s has no series attached.' % ticker_full_name)
+                return None
+            return self.__get_multiple_series(series_collection_name, instrument['series'].items())
+
+        if series_name not in instrument['series'].keys():
+            self.logger.error('Instrument %s has no series %s attached.' % (ticker_full_name, series_name))
+            return None
+
+        return self.__get_multiple_series(series_collection_name, [(series_name, instrument['series'][series_name])])
+
+    def __get_multiple_series(self, collection_name, series_refs):
+        series = []
+        for ref in series_refs:
+            times = []
+            values = []
+            cursor = self.db[collection_name].find({'k': ref[1]})
+            for item in cursor:
+                times.append(item['t'])
+                values.append(item['v'])
+            series.append(pandas.Series(values, index=times, name=ref[0]))
+        return pandas.concat(series, axis=1)

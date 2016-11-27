@@ -215,7 +215,7 @@ if __name__ == "__main__":
     root_logger = logging.getLogger('')
     root_logger.setLevel(logging.DEBUG)
     console = logging.StreamHandler()
-    formatter = logging.Formatter('# %(levelname)s: %(asctime)s %(name)s %(message)s')
+    formatter = logging.Formatter('# %(levelname)s | %(asctime)s | %(name)s | %(message)s', datefmt='%Y%m%d %H:%M:%S')
     console.setFormatter(formatter)
     root_logger.addHandler(console)
 
