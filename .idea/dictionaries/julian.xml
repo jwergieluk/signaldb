@@ -3,6 +3,7 @@
     <words>
       <w>mongo</w>
       <w>phelix</w>
+      <w>upsert</w>
     </words>
   </dictionary>
 </component>
