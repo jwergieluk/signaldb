@@ -56,6 +56,7 @@ class SignalDb:
 
         flat_series = []
         if main_ticker is None:
+            self.logger.debug("Add new instrument with ticker (%s,%s)" % (main_ticker[0], main_ticker[1]))
             instrument_id = ObjectId()
             instrument['tickers'] = [{'source': ticker[0], 'ticker': ticker[1], 'instr_id': instrument_id}
                                      for ticker in instrument['tickers']]
@@ -90,9 +91,16 @@ class SignalDb:
                     flat_series.append({'k': series_id, 't': sample[0], 'v': sample[1]})
                 if updated:
                     self.db[self.properties_col].replace_one({'_id': instrument_from_db['_id']}, instrument_from_db)
+                    self.logger.debug("Updated the properties of (%s,%s)" % (main_ticker[0], main_ticker[1]))
 
         if len(flat_series) > 0:
-            self.db[self.series_col].insert_many(flat_series)
+            try:
+                self.db[self.series_col].insert_many(flat_series)
+            except pymongo.errors.BulkWriteError:
+                for sample in flat_series:
+                    sample.pop('_id', None)
+                    self.db[self.series_col].find_one_and_replace(
+                        {'k': sample['k'], 't': sample['t']}, sample, upsert=True)
 
     def try_save_instrument(self, instrument, ticker_name, collection_name):
         if not self.__check_instrument(instrument):
