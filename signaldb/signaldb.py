@@ -8,27 +8,26 @@ from bson.objectid import ObjectId
 from collections import OrderedDict
 import pandas
 
+
 class SignalDb:
-    def __init__(self):
+    def __init__(self, db):
         self.logger = logging.getLogger('signal.SignalDb')
         self.logger.setLevel(logging.DEBUG)
-        cred = {"sdbHost": "192.168.0.16", "sdbPort": 27017, "sdbUser": "worker", "sdbPwd": ""}
-        for key in os.environ.keys() & cred.keys():
-            try:
-                cred[key] = type(cred[key])(os.environ[key])
-            except ValueError:
-                self.logger.error("Reading connection info failed: no %s in env." % key)
-                raise SystemError
+        self.db = db
+        self.properties_col = 'properties'
+        self.tickers_col = 'tickers'
+        self.series_col = 'series'
 
-        self.mongo_client = pymongo.MongoClient(cred["sdbHost"], cred["sdbPort"])
-        self.db = self.mongo_client['market']
-        self.db.authenticate(cred["sdbUser"], cred["sdbPwd"], source='admin')
+        self.db[self.tickers_col].create_index(
+            [('source', pymongo.ASCENDING), ('ticker', pymongo.ASCENDING)], unique=True, name='source_ticker_index')
+        self.db[self.series_col].create_index(
+            [('k', pymongo.ASCENDING), ('t', pymongo.ASCENDING)], unique=True, name='k_t_index')
 
     @staticmethod
-    def __check_instrument(instrument, ticker_name):
-        if not all([k in instrument.keys() for k in ['t', 'static', 'series']]):
+    def __check_instrument(instrument):
+        if not all([k in instrument.keys() for k in ['tickers', 'properties', 'series']]):
             return False
-        if ticker_name not in instrument['static']['ticker']:
+        if len(instrument['tickers']) == 0:
             return False
         return True
 
@@ -43,18 +42,63 @@ class SignalDb:
             points.append(point)
         return points
 
-    def __check_collections(self, *collections):
-        for collection in collections:
-            if collection not in self.db.collection_names():
-                self.logger.error("__check_collections: Collection %s not found" % collection)
-                raise ValueError
+    def upsert(self, instrument):
+        if not self.__check_instrument(instrument):
+            self.logger.error("upsert: supplied instrument has wrong type.")
+            return False
+
+        main_ticker = None
+        for ticker in instrument['tickers']:
+            ticker_record = self.db[self.tickers_col].find_one({'source': ticker[0], 'ticker': ticker[1]})
+            if ticker_record is not None:
+                main_ticker = ticker_record
+                break
+
+        flat_series = []
+        if main_ticker is None:
+            instrument_id = ObjectId()
+            instrument['tickers'] = [{'source': ticker[0], 'ticker': ticker[1], 'instr_id': instrument_id}
+                                     for ticker in instrument['tickers']]
+            self.db[self.tickers_col].insert(instrument['tickers'])
+
+            instrument['properties']['_id'] = instrument_id
+            instrument['properties']['series'] = {series_key: ObjectId() for series_key in instrument['series'].keys()}
+            self.db[self.properties_col].insert_one(instrument['properties'])
+
+            for key in instrument['series'].keys():
+                series = instrument['series'][key]
+                series_id = instrument['properties']['series'][key]
+                for sample in series:
+                    flat_series.append({'k': series_id, 't': sample[0], 'v': sample[1]})
+        else:
+            instrument_id = main_ticker['instr_id']
+            instrument_from_db = self.db[self.properties_col].find_one({'_id': instrument_id})
+            if instrument_from_db is None:
+                self.logger.warning("The ticker (%s,%s) points to a non-existent properties document." %
+                                    (main_ticker[0], main_ticker[1]))
+                return False
+            updated = False
+            for key in instrument['series'].keys():
+                series = instrument['series'][key]
+                series_id = ObjectId()
+                if key not in instrument_from_db['series'].keys():
+                    updated = True
+                    instrument_from_db['series'][key] = series_id
+                else:
+                    series_id = instrument_from_db['series'][key]
+                for sample in series:
+                    flat_series.append({'k': series_id, 't': sample[0], 'v': sample[1]})
+                if updated:
+                    self.db[self.properties_col].replace_one({'_id': instrument_from_db['_id']}, instrument_from_db)
+
+        if len(flat_series) > 0:
+            self.db[self.series_col].insert_many(flat_series)
 
     def try_save_instrument(self, instrument, ticker_name, collection_name):
-        if not self.__check_instrument(instrument, ticker_name):
+        if not self.__check_instrument(instrument):
             self.logger.error("try_save_instrument: %s has wrong type." % ticker_name)
             return False
         series_collection_name = collection_name + ".series"
-        self.__check_collections(collection_name, series_collection_name)
 
         ticker_field = "ticker.%s" % ticker_name
         ticker = instrument["static"]["ticker"][ticker_name]
@@ -98,7 +142,7 @@ class SignalDb:
                                     collection_name: str):
         # TODO add time_series validation
         series_collection_name = collection_name + ".series"
-        self.__check_collections(collection_name, series_collection_name)
+#        self.__check_collections(collection_name, series_collection_name)
 
         ticker_full_name = "ticker." + ticker_provider
         instrument = self.db[collection_name].find_one({ticker_full_name: ticker})
@@ -170,3 +214,4 @@ class SignalDb:
                 values.append(item['v'])
             series.append(pandas.Series(values, index=times, name=ref[0]))
         return pandas.concat(series, axis=1)
+

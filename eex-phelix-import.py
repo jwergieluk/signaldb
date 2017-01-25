@@ -8,6 +8,8 @@ import pytz
 import rfc3339
 import signaldb
 import datetime
+import pymongo
+import pprint
 from bson.objectid import ObjectId
 from collections import OrderedDict
 
@@ -42,8 +44,8 @@ class JSONEncoderExtension(json.JSONEncoder):
 
 
 class ProcessFuturesDetail:
-    market_db = "eex"
-    target_collection = "eex.phelix.futures"
+    market_db = "market"
+    target_collection = "instruments"
 
     @classmethod
     def flatten(cls, tree):
@@ -97,10 +99,11 @@ class ProcessFuturesDetail:
         static_fields = {'contract_field:delivery_from', 'contract_field:delivery_until',
                          'contract_field:expiry_date', 'contract_field:product_code',
                          'contract_field:trading_from', 'contract_field:trading_until', 'product_field:currency',
-                         'product_field:identifier', 'product_field:name', 'product_field:unit', 'contract_field:volume'}
-        ticker_fields = {'external_code:bloomberg', 'external_code:reuters', 'contract_field:identifier'}
-        required_fields = {'settlementPrice', 'volumeTotal', 'contract_field:identifier', 'contract_field:delivery_from',
-                           'contract_field:delivery_until', 'contract_field:volume'}
+                         'product_field:identifier', 'product_field:name', 'product_field:unit',
+                         'contract_field:volume', 'external_code:bloomberg', 'external_code:reuters'}
+        ticker_fields = {'contract_field:identifier'}
+        required_fields = {'settlementPrice', 'volumeTotal', 'contract_field:identifier',
+                           'contract_field:delivery_from', 'contract_field:delivery_until', 'contract_field:volume'}
         name_mapping = {k: k for k in series_fields | static_fields | ticker_fields}
         name_mapping['contract_field:contract_code'] = 'contract_code'
         name_mapping['contract_field:delivery_from'] = 'delivery_from'
@@ -111,26 +114,27 @@ class ProcessFuturesDetail:
         name_mapping['contract_field:trading_from'] = 'trading_from'
         name_mapping['contract_field:trading_until'] = 'trading_until'
         name_mapping['product_field:currency'] = 'currency'
-        name_mapping['product_field:identifier'] = 'product_identifier'
+        name_mapping['product_field:identifier'] = 'product_id_eex'
         name_mapping['product_field:name'] = 'product_name'
         name_mapping['product_field:unit'] = 'unit'
-        name_mapping['external_code:bloomberg'] = 'bloomberg'
-        name_mapping['external_code:reuters'] = 'reuters'
+        name_mapping['external_code:bloomberg'] = 'product_id_bloomberg'
+        name_mapping['external_code:reuters'] = 'product_id_reuters'
         name_mapping['contract_field:volume'] = 'contract_volume'
         for c in contracts:
             if not all([k in c.keys() for k in required_fields]):
                 continue
             if c['volumeTotal'] <= 0.0:
                 continue
-            contract = {'static': {}, 'series': {}}
+            contract = {'properties': {}, 'series': {}, 'tickers': {}}
             try:
-                contract['t'] = c['contract_field:timestamp_of_occurrence']
-                series_dict = {name_mapping[k]: c[k] for k in series_fields & c.keys()}
-                static_dict = {name_mapping[k]: c[k] for k in static_fields & c.keys()}
+                observation_time = c['contract_field:timestamp_of_occurrence']
+                series_dict = {name_mapping[k]: [(observation_time, c[k]), ] for k in series_fields & c.keys()}
+                properties_dict = {name_mapping[k]: c[k] for k in static_fields & c.keys()}
                 ticker_dict = {name_mapping[k]: c[k] for k in ticker_fields & c.keys()}
-                contract['series'] = OrderedDict(sorted(series_dict.items(), key=lambda k: k[0]))
-                contract['static'] = OrderedDict(sorted(static_dict.items(), key=lambda k: k[0]))
-                contract['static']['ticker'] = OrderedDict(sorted(ticker_dict.items(), key=lambda k: k[0]))
+                contract['series'] = dict(sorted(series_dict.items(), key=lambda k: k[0]))
+                contract['properties'] = OrderedDict(sorted(properties_dict.items(), key=lambda k: k[0]))
+                contract['properties']['category'] = 'eex-phelix-futures'
+                contract['tickers'] = list(sorted(ticker_dict.items(), key=lambda k: k[0]))
             except LookupError:
                 print("# ERROR: categorize_fields: Invalid contract %s." % c.__str__())
                 print(traceback.format_exc())
@@ -141,27 +145,32 @@ class ProcessFuturesDetail:
     @classmethod
     def correct_observation_time(cls, contracts, observation_date):
         for c in contracts:
-            if c['t'].date() != observation_date.date():
+            if c['contract_field:timestamp_of_occurrence'].date() != observation_date.date():
                 observation_date = observation_date.replace(hour=17, minute=30)
-                c['t'] = observation_date
+                c['contract_field:timestamp_of_occurrence'] = observation_date
 
     @classmethod
-    def run(cls):
-        signal_db = signaldb.SignalDb()
-        input_dir = get_market_data_dir('eex-phelix-futures-detail', '1')
-        output_dir = get_market_data_dir('eex-phelix-futures-detail', '2')
+    def run(cls, db_handler):
+        signal_db = signaldb.SignalDb(db_handler)
+        input_dir = get_market_data_dir('eex', 'phelix-futures', 'detail', '1')
+        output_dir = get_market_data_dir('eex', 'phelix-futures', 'detail', '2')
         for input_file in os.listdir(input_dir):
+            if '201701' not in input_file:
+                continue
             print('# INFO: Processing %s.' % input_file)
             with open(os.path.join(input_dir, input_file), 'r') as f:
                 data = json.load(f)
 
             data_1 = cls.flatten(data)
             data_2 = cls.set_field_types(data_1)
+
+            date_from_file_name = datetime.datetime.strptime(input_file.split(".")[0], "%Y%m%d")
+            cls.correct_observation_time(data_2, date_from_file_name)
             data_3 = cls.categorize_fields(data_2)
-            date_from_file_name = datetime.datetime.strptime(input_file.split("-")[0], "%Y%m%d")
-            cls.correct_observation_time(data_3, date_from_file_name)
+
             for instrument in data_3:
-                signal_db.try_save_instrument(instrument, cls.market_db, cls.target_collection)
+                pprint.pprint(instrument)
+                signal_db.upsert(instrument)
 
             output_file = os.path.join(output_dir, input_file)
             if os.path.exists(output_file):
@@ -194,7 +203,6 @@ class ProcessFuturesPrices:
                 continue
 
             signal_db.append_series_to_instrument('eex', ticker, 'price', time_series, cls.phelix_futures_collection)
-            break
 
     @classmethod
     def extract_time_series(cls, data):
@@ -210,6 +218,17 @@ class ProcessFuturesPrices:
         return data['contractIdentifier']
 
 
+def read_values_from_env(conf: dict):
+    status = True
+    for key in os.environ.keys() & conf.keys():
+        try:
+            conf[key] = type(conf[key])(os.environ[key])
+        except ValueError:
+            logging.getLogger().warning("Failed reading %s from environment." % key)
+            status = False
+    return status
+
+
 if __name__ == "__main__":
     logger = logging.getLogger('eex_phelix_import')
     root_logger = logging.getLogger('')
@@ -219,5 +238,12 @@ if __name__ == "__main__":
     console.setFormatter(formatter)
     root_logger.addHandler(console)
 
-    ProcessFuturesPrices.run()
+    cred = {"sdb_host": "", "sdb_port": 27017, "sdb_user": "", "sdb_pwd": ""}
+    read_values_from_env(cred)
+
+    mongo_client = pymongo.MongoClient(cred["sdb_host"], cred["sdb_port"])
+    db = mongo_client['market']
+    db.authenticate(cred["sdb_user"], cred["sdb_pwd"], source='admin')
+
+    ProcessFuturesDetail.run(db)
 
