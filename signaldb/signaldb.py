@@ -56,7 +56,7 @@ class SignalDb:
 
         flat_series = []
         if main_ticker is None:
-            self.logger.debug("Add new instrument with ticker (%s,%s)" % (main_ticker[0], main_ticker[1]))
+            self.logger.debug("Add new instrument with ticker (%s,%s)" % (ticker[0], ticker[1]))
             instrument_id = ObjectId()
             instrument['tickers'] = [{'source': ticker[0], 'ticker': ticker[1], 'instr_id': instrument_id}
                                      for ticker in instrument['tickers']]
@@ -76,7 +76,7 @@ class SignalDb:
             instrument_from_db = self.db[self.properties_col].find_one({'_id': instrument_id})
             if instrument_from_db is None:
                 self.logger.warning("The ticker (%s,%s) points to a non-existent properties document." %
-                                    (main_ticker[0], main_ticker[1]))
+                                    (main_ticker['source'], main_ticker['ticker']))
                 return False
             updated = False
             for key in instrument['series'].keys():
@@ -91,7 +91,8 @@ class SignalDb:
                     flat_series.append({'k': series_id, 't': sample[0], 'v': sample[1]})
                 if updated:
                     self.db[self.properties_col].replace_one({'_id': instrument_from_db['_id']}, instrument_from_db)
-                    self.logger.debug("Updated the properties of (%s,%s)" % (main_ticker[0], main_ticker[1]))
+                    self.logger.debug("Updated the properties of (%s,%s)" %
+                                      (main_ticker['source'], main_ticker['ticker']))
 
         if len(flat_series) > 0:
             try:
@@ -101,33 +102,6 @@ class SignalDb:
                     sample.pop('_id', None)
                     self.db[self.series_col].find_one_and_replace(
                         {'k': sample['k'], 't': sample['t']}, sample, upsert=True)
-
-    def try_save_instrument(self, instrument, ticker_name, collection_name):
-        if not self.__check_instrument(instrument):
-            self.logger.error("try_save_instrument: %s has wrong type." % ticker_name)
-            return False
-        series_collection_name = collection_name + ".series"
-
-        ticker_field = "ticker.%s" % ticker_name
-        ticker = instrument["static"]["ticker"][ticker_name]
-        static_record = self.db[collection_name].find_one({ticker_field: ticker})
-        is_new = static_record is None
-
-        series_ref = OrderedDict(instrument["series"])
-        if is_new:
-            for key in series_ref.keys():
-                series_ref[key] = ObjectId()
-            instrument["static"]["series"] = series_ref
-            result = self.db[collection_name].insert_one(instrument['static'])
-            if result is None:
-                self.logger.error("try_save_instrument: %s not inserted." % ticker)
-                return False
-        else:
-            series_ref = OrderedDict(sorted(static_record["series"].items(), key=lambda k: k[0]))
-
-        series = SignalDb.__extract_series(instrument['t'], instrument['series'], series_ref)
-        self.__upload_series(series_collection_name, series)
-        return True
 
     def __check_add_series_ref(self, collection_name, instrument_doc, series_name):
         new_series_id = ObjectId()
@@ -185,6 +159,52 @@ class SignalDb:
         if duplicates_no > 0:
             self.logger.warn('%d duplicate observations discarded (out of %d).' % (duplicates_no, len(series)))
 
+    def get_properties(self, source: str, ticker: str):
+        ticker_record = self.db[self.tickers_col].find_one({'source': source, 'ticker': ticker})
+        if ticker_record is None:
+            self.logger.info("Ticker (%s,%s) not found. " % (source, ticker))
+            return None
+        instrument_from_db = self.db[self.properties_col].find_one({'_id': ticker_record['instr_id']})
+        if instrument_from_db is None:
+            self.logger.warning("The ticker (%s,%s) points to a non-existent properties document." % (source, ticker))
+            return None
+        return instrument_from_db
+
+    def get_series_new(self, source: str, ticker: str):
+        instrument = self.get_properties(source, ticker)
+        if 'series' not in instrument.keys():
+            self.logger.error('The instrument (%s,%s) has no series attached.' % (source, ticker))
+            return None
+        if len(instrument['series']) == 0:
+            self.logger.warn('Instrument %s has no series attached.' % ticker_full_name)
+            return None
+
+        series = {}
+        for ref in instrument['series'].items():
+            times = []
+            values = []
+            cursor = self.db[self.series_col].find({'k': ref[1]})
+            for item in cursor:
+                times.append(item['t'])
+                values.append(item['v'])
+
+            series[ref[0]] = {'t': times, 'v': values}
+        return series
+#            series.append(pandas.Series(values, index=times, name=ref[0]))
+#        return pandas.concat(series, axis=1)
+
+    def __get_multiple_series(self, collection_name, series_refs):
+        series = []
+        for ref in series_refs:
+            times = []
+            values = []
+            cursor = self.db[collection_name].find({'k': ref[1]})
+            for item in cursor:
+                times.append(item['t'])
+                values.append(item['v'])
+            series.append(pandas.Series(values, index=times, name=ref[0]))
+        return pandas.concat(series, axis=1)
+
     def get_series(self, collection_name: str, ticker_provider: str, ticker: str, series_name: str = ""):
         series_collection_name = collection_name + ".series"
         self.__check_collections(collection_name, series_collection_name)
@@ -211,15 +231,5 @@ class SignalDb:
 
         return self.__get_multiple_series(series_collection_name, [(series_name, instrument['series'][series_name])])
 
-    def __get_multiple_series(self, collection_name, series_refs):
-        series = []
-        for ref in series_refs:
-            times = []
-            values = []
-            cursor = self.db[collection_name].find({'k': ref[1]})
-            for item in cursor:
-                times.append(item['t'])
-                values.append(item['v'])
-            series.append(pandas.Series(values, index=times, name=ref[0]))
-        return pandas.concat(series, axis=1)
+
 

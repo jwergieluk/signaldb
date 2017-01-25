@@ -155,9 +155,7 @@ class ProcessFuturesDetail:
         input_dir = get_market_data_dir('eex', 'phelix-futures', 'detail', '1')
         output_dir = get_market_data_dir('eex', 'phelix-futures', 'detail', '2')
         for input_file in os.listdir(input_dir):
-            if '201701' not in input_file:
-                continue
-            print('# INFO: Processing %s.' % input_file)
+            logger.info('Processing %s.' % input_file)
             with open(os.path.join(input_dir, input_file), 'r') as f:
                 data = json.load(f)
 
@@ -169,12 +167,11 @@ class ProcessFuturesDetail:
             data_3 = cls.categorize_fields(data_2)
 
             for instrument in data_3:
-                pprint.pprint(instrument)
                 signal_db.upsert(instrument)
 
             output_file = os.path.join(output_dir, input_file)
             if os.path.exists(output_file):
-                print("# ERROR: Output file \"%s\" not overwritten." % output_file)
+                logger.info("Output file \"%s\" not overwritten." % output_file)
                 continue
             with open(output_file, 'w') as g:
                 json.dump(data_3, g, cls=JSONEncoderExtension)
@@ -191,7 +188,6 @@ class ProcessFuturesPrices:
             logger.info('Processing %s.' % input_file)
             with open(os.path.join(input_dir, input_file), 'r') as f:
                 data = json.load(f)
-
             try:
                 time_series = ProcessFuturesPrices.extract_time_series(data)
                 ticker = ProcessFuturesPrices.extract_ticker(data)
@@ -245,5 +241,8 @@ if __name__ == "__main__":
     db = mongo_client['market']
     db.authenticate(cred["sdb_user"], cred["sdb_pwd"], source='admin')
 
-    ProcessFuturesDetail.run(db)
+    signal_db = signaldb.SignalDb(db)
+    pprint.pprint(signal_db.get_series_new('eex', 'C-Power-F-DEAT-Base-Year-2015'))
+
+    #ProcessFuturesDetail.run(db)
 
