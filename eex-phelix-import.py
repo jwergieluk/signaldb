@@ -180,9 +180,9 @@ class ProcessFuturesDetail:
 class ProcessFuturesPrices:
     @classmethod
     def run(cls, db_handle):
-        signal_db = signaldb.SignalDb(db_handle)
+        __signal_db = signaldb.SignalDb(db_handle)
         input_dir = get_market_data_dir('eex-phelix-futures-prices', '1')
-        for input_file in os.listdir(input_dir):
+        for i, input_file in enumerate(os.listdir(input_dir)):
             logger.info('Processing %s.' % input_file)
             with open(os.path.join(input_dir, input_file), 'r') as f:
                 data = json.load(f)
@@ -195,8 +195,9 @@ class ProcessFuturesPrices:
             except ValueError:
                 logger.error("ProcessFuturesPrices: Error while parsing data in %s." % input_file)
                 continue
-            signal_db.upsert_series('eex', ticker, 'intradayPrice', time_series)
-            break
+            __signal_db.upsert_series('eex', ticker, 'intradayPrice', time_series)
+            if i > 4:
+                return
 
     @classmethod
     def extract_time_series(cls, data):
@@ -240,8 +241,16 @@ if __name__ == "__main__":
     db.authenticate(cred["sdb_user"], cred["sdb_pwd"], source='admin')
 
     signal_db = signaldb.SignalDb(db)
-    pprint.pprint(signal_db.get_series('eex', 'C-Power-F-DEAT-Peak-Week-2011W08'))
+    query_time = datetime.datetime.now()
+
+    instruments = signal_db.find_instruments({'category': 'eex-phelix-futures',
+                                'trading_until': {'$gt': query_time},
+                                'trading_from': {'$lt': query_time}})
+    for i in instruments:
+        print(i['tickers'])
+#    df = signal_db.get_pandas('eex', 'C-Power-F-DEAT-Peak-Year-2012')
+#    print(df.to_csv(None, sep=' '))
 
 #    ProcessFuturesPrices.run(db)
-    #ProcessFuturesDetail.run(db)
+#    ProcessFuturesDetail.run(db)
 

@@ -19,8 +19,12 @@ class SignalDb:
 
         self.db[self.tickers_col].create_index(
             [('source', pymongo.ASCENDING), ('ticker', pymongo.ASCENDING)], unique=True, name='source_ticker_index')
+        self.db[self.tickers_col].create_index('instr_id', unique=False, name='instr_id_index')
         self.db[self.series_col].create_index(
             [('k', pymongo.ASCENDING), ('t', pymongo.ASCENDING)], unique=True, name='k_t_index')
+
+    def props(self):
+        return self.db[self.properties_col]
 
     @staticmethod
     def __check_instrument(instrument):
@@ -30,12 +34,19 @@ class SignalDb:
             return False
         return True
 
+    def list_dangling_series(self):
+        pass
+
+    def remove_dangling_series(self):
+        pass
+
     def upsert(self, instrument):
         if not self.__check_instrument(instrument):
             self.logger.error("upsert: supplied instrument has wrong type.")
             return False
 
         main_ticker = None
+        first_ticker = instrument['tickers'][0]
         for ticker in instrument['tickers']:
             ticker_record = self.db[self.tickers_col].find_one({'source': ticker[0], 'ticker': ticker[1]})
             if ticker_record is not None:
@@ -44,7 +55,7 @@ class SignalDb:
 
         flat_series = []
         if main_ticker is None:
-            self.logger.debug("Add new instrument with ticker (%s,%s)" % (ticker[0], ticker[1]))
+            self.logger.debug("Add new instrument with ticker (%s,%s)" % (first_ticker[0], first_ticker[1]))
             instrument_id = ObjectId()
             instrument['tickers'] = [{'source': ticker[0], 'ticker': ticker[1], 'instr_id': instrument_id}
                                      for ticker in instrument['tickers']]
@@ -120,22 +131,15 @@ class SignalDb:
                 self.db[self.series_col].find_one_and_replace(
                     {'k': sample['k'], 't': sample['t']}, sample, upsert=True)
 
-    def __check_add_series_ref(self, collection_name, instrument_doc, series_name):
-        new_series_id = ObjectId()
-        if 'series' not in instrument_doc.keys():
-            instrument_doc['series'] = dict(series_name=new_series_id)
-        elif series_name not in instrument_doc['series'].keys():
-            instrument_doc['series'][series_name] = new_series_id
-        else:
-            return True
-
-        result = self.db[collection_name].update_one({'_id': instrument_doc['_id']},
-                                                     {'$set': {'series.' + series_name: new_series_id}})
-        if not result.acknowledged:
-            return False
-        if result.modified_count != 1:
-            return False
-        return True
+    def find_instruments(self, search_doc):
+        cursor = self.db[self.properties_col].find(search_doc, limit=10000)
+        instruments = []
+        for instrument in cursor:
+            ticker_cursor = self.db[self.tickers_col].find({'instr_id': instrument['_id']})
+            tickers = [(ticker['source'], ticker['ticker']) for ticker in ticker_cursor]
+            instrument['tickers'] = tickers
+            instruments.append(instrument)
+        return instruments
 
     def get_properties(self, source: str, ticker: str):
         ticker_record = self.db[self.tickers_col].find_one({'source': source, 'ticker': ticker})
@@ -173,20 +177,10 @@ class SignalDb:
         series = self.get_series(source, ticker)
         if series is None:
             return None
-#            series.append(pandas.Series(values, index=times, name=ref[0]))
-#        return pandas.concat(series, axis=1)
-
-    def __get_multiple_series(self, collection_name, series_refs):
-        series = []
-        for ref in series_refs:
-            times = []
-            values = []
-            cursor = self.db[collection_name].find({'k': ref[1]})
-            for item in cursor:
-                times.append(item['t'])
-                values.append(item['v'])
-            series.append(pandas.Series(values, index=times, name=ref[0]))
-        return pandas.concat(series, axis=1)
+        list_of_pandas = []
+        for key in series.keys():
+            list_of_pandas.append(pandas.Series(series[key]['v'], index=series[key]['t'], name=key))
+        return pandas.concat(list_of_pandas, axis=1)
 
     @staticmethod
     def __validate_series(series):
