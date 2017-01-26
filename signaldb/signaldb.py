@@ -1,6 +1,5 @@
 #!/bin/env python3
 
-import os
 import logging
 import pymongo
 import pymongo.errors
@@ -11,7 +10,7 @@ import pandas
 
 class SignalDb:
     def __init__(self, db):
-        self.logger = logging.getLogger('signal.SignalDb')
+        self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.DEBUG)
         self.db = db
         self.properties_col = 'properties'
@@ -30,17 +29,6 @@ class SignalDb:
         if len(instrument['tickers']) == 0:
             return False
         return True
-
-    @staticmethod
-    def __extract_series(t, series, series_ref):
-        points = []
-        for name in series.keys():
-            point = OrderedDict()
-            point['t'] = t
-            point['k'] = series_ref[name]
-            point['v'] = series[name]
-            points.append(point)
-        return points
 
     def upsert(self, instrument):
         if not self.__check_instrument(instrument):
@@ -95,13 +83,42 @@ class SignalDb:
                                       (main_ticker['source'], main_ticker['ticker']))
 
         if len(flat_series) > 0:
-            try:
-                self.db[self.series_col].insert_many(flat_series)
-            except pymongo.errors.BulkWriteError:
-                for sample in flat_series:
-                    sample.pop('_id', None)
-                    self.db[self.series_col].find_one_and_replace(
-                        {'k': sample['k'], 't': sample['t']}, sample, upsert=True)
+            self.__upsert_series(flat_series)
+        return True
+
+    def upsert_series(self, source: str, ticker, series_name: str, series):
+        if not self.__validate_series(series):
+            self.logger.error("Invalid series for (%s,%s) provided." % (source, ticker))
+            return False
+        instrument = self.get_properties(source, ticker)
+        if instrument is None:
+            self.logger.error("(%s,%s) not found." % (source, ticker))
+            return False
+
+        series_id = ObjectId()
+        if 'series' not in instrument.keys():
+            instrument['series'] = dict()
+        if series_name not in instrument['series'].keys():
+            instrument['series'][series_name] = series_id
+            self.db[self.properties_col].replace_one({'_id': instrument['_id']}, instrument)
+        else:
+            series_id = instrument['series'][series_name]
+
+        series_for_insert = []
+        for sample in series:
+            series_for_insert.append(dict(k=series_id, t=sample[0], v=sample[1]))
+
+        self.__upsert_series(series_for_insert)
+        return True
+
+    def __upsert_series(self, series):
+        try:
+            self.db[self.series_col].insert_many(series)
+        except pymongo.errors.BulkWriteError:
+            for sample in series:
+                sample.pop('_id', None)
+                self.db[self.series_col].find_one_and_replace(
+                    {'k': sample['k'], 't': sample['t']}, sample, upsert=True)
 
     def __check_add_series_ref(self, collection_name, instrument_doc, series_name):
         new_series_id = ObjectId()
@@ -120,45 +137,6 @@ class SignalDb:
             return False
         return True
 
-    def append_series_to_instrument(self, ticker_provider: str, ticker, series_name: str, series,
-                                    collection_name: str):
-        # TODO add time_series validation
-        series_collection_name = collection_name + ".series"
-#        self.__check_collections(collection_name, series_collection_name)
-
-        ticker_full_name = "ticker." + ticker_provider
-        instrument = self.db[collection_name].find_one({ticker_full_name: ticker})
-        if instrument is None:
-            self.logger.error('Instrument %s not found.' % ticker)
-            return False
-
-        if not self.__check_add_series_ref(collection_name, instrument, series_name):
-            self.logger.error('Unable to update instrument %s.' % ticker)
-            return False
-
-        decorated_series = self.__decorate_series(series, instrument['series'][series_name])
-        if not self.__upload_series(series_collection_name, decorated_series):
-            return False
-        return True
-
-    @staticmethod
-    def __decorate_series(time_series, series_id: ObjectId):
-        observations = []
-        for p in time_series:
-            observations.append(OrderedDict(t=p[0], k=series_id, v=p[1]))
-        return observations
-
-    def __upload_series(self, collection_name: str, series):
-        duplicates_no = 0
-        for observation in series:
-            try:
-                self.db[collection_name].insert_one(observation)
-            except pymongo.errors.DuplicateKeyError:
-                duplicates_no += 1
-                continue
-        if duplicates_no > 0:
-            self.logger.warn('%d duplicate observations discarded (out of %d).' % (duplicates_no, len(series)))
-
     def get_properties(self, source: str, ticker: str):
         ticker_record = self.db[self.tickers_col].find_one({'source': source, 'ticker': ticker})
         if ticker_record is None:
@@ -170,7 +148,7 @@ class SignalDb:
             return None
         return instrument_from_db
 
-    def get_series_new(self, source: str, ticker: str):
+    def get_series(self, source: str, ticker: str):
         instrument = self.get_properties(source, ticker)
         if 'series' not in instrument.keys():
             self.logger.error('The instrument (%s,%s) has no series attached.' % (source, ticker))
@@ -190,6 +168,11 @@ class SignalDb:
 
             series[ref[0]] = {'t': times, 'v': values}
         return series
+
+    def get_pandas(self, source: str, ticker: str):
+        series = self.get_series(source, ticker)
+        if series is None:
+            return None
 #            series.append(pandas.Series(values, index=times, name=ref[0]))
 #        return pandas.concat(series, axis=1)
 
@@ -205,31 +188,6 @@ class SignalDb:
             series.append(pandas.Series(values, index=times, name=ref[0]))
         return pandas.concat(series, axis=1)
 
-    def get_series(self, collection_name: str, ticker_provider: str, ticker: str, series_name: str = ""):
-        series_collection_name = collection_name + ".series"
-        self.__check_collections(collection_name, series_collection_name)
-
-        ticker_full_name = "ticker." + ticker_provider
-        instrument = self.db[collection_name].find_one({ticker_full_name: ticker})
-        if instrument is None:
-            self.logger.error('Instrument %s not found.' % ticker)
-            return None
-
-        if 'series' not in instrument.keys():
-            self.logger.error('Instrument %s has no series attached.' % ticker_full_name)
-            return None
-
-        if len(series_name) == 0:
-            if len(instrument['series']) == 0:
-                self.logger.warn('Instrument %s has no series attached.' % ticker_full_name)
-                return None
-            return self.__get_multiple_series(series_collection_name, instrument['series'].items())
-
-        if series_name not in instrument['series'].keys():
-            self.logger.error('Instrument %s has no series %s attached.' % (ticker_full_name, series_name))
-            return None
-
-        return self.__get_multiple_series(series_collection_name, [(series_name, instrument['series'][series_name])])
-
-
-
+    @staticmethod
+    def __validate_series(series):
+        return True

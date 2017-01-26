@@ -150,8 +150,8 @@ class ProcessFuturesDetail:
                 c['contract_field:timestamp_of_occurrence'] = observation_date
 
     @classmethod
-    def run(cls, db_handler):
-        signal_db = signaldb.SignalDb(db_handler)
+    def run(cls, db_handle):
+        signal_db = signaldb.SignalDb(db_handle)
         input_dir = get_market_data_dir('eex', 'phelix-futures', 'detail', '1')
         output_dir = get_market_data_dir('eex', 'phelix-futures', 'detail', '2')
         for input_file in os.listdir(input_dir):
@@ -178,11 +178,9 @@ class ProcessFuturesDetail:
 
 
 class ProcessFuturesPrices:
-    phelix_futures_collection = "eex.phelix.futures"
-
     @classmethod
-    def run(cls):
-        signal_db = signaldb.SignalDb()
+    def run(cls, db_handle):
+        signal_db = signaldb.SignalDb(db_handle)
         input_dir = get_market_data_dir('eex-phelix-futures-prices', '1')
         for input_file in os.listdir(input_dir):
             logger.info('Processing %s.' % input_file)
@@ -197,8 +195,8 @@ class ProcessFuturesPrices:
             except ValueError:
                 logger.error("ProcessFuturesPrices: Error while parsing data in %s." % input_file)
                 continue
-
-            signal_db.append_series_to_instrument('eex', ticker, 'price', time_series, cls.phelix_futures_collection)
+            signal_db.upsert_series('eex', ticker, 'intradayPrice', time_series)
+            break
 
     @classmethod
     def extract_time_series(cls, data):
@@ -242,7 +240,8 @@ if __name__ == "__main__":
     db.authenticate(cred["sdb_user"], cred["sdb_pwd"], source='admin')
 
     signal_db = signaldb.SignalDb(db)
-    pprint.pprint(signal_db.get_series_new('eex', 'C-Power-F-DEAT-Base-Year-2015'))
+    pprint.pprint(signal_db.get_series('eex', 'C-Power-F-DEAT-Peak-Week-2011W08'))
 
+#    ProcessFuturesPrices.run(db)
     #ProcessFuturesDetail.run(db)
 
