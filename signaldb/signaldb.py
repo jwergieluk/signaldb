@@ -55,6 +55,14 @@ class SignalDb:
                 return False
             if not all([type(ticker_part) is str for ticker_part in ticker]):
                 return False
+            if not all([len(ticker_part) > 0 for ticker_part in ticker]):
+                return False
+        if type(instrument['series']) is not dict:
+            return False
+        if not all([type(key) is str for key in instrument['series']]):
+            return False
+        if not all([len(key) > 0 for key in instrument['series']]):
+            return False
         return True
 
     def list_dangling_series(self):
@@ -170,8 +178,8 @@ class SignalDb:
                 self.db[self.series_col].find_one_and_replace(
                     {'k': sample['k'], 't': sample['t']}, sample, upsert=True)
 
-    def find_instruments(self, search_doc):
-        cursor = self.db[self.properties_col].find(search_doc, limit=10000)
+    def find_instruments(self, filter_doc):
+        cursor = self.db[self.properties_col].find(filter_doc, limit=10000)
         instruments = []
         for instrument in cursor:
             ticker_cursor = self.db[self.tickers_col].find({'instr_id': instrument['_id']})

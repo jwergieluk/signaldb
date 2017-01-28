@@ -44,8 +44,8 @@ def get_db(host, port, user, pwd, db_name):
 
     if not all([len(str(cred[key])) > 0 for key in cred.keys()]):
         cred['sdb_pwd'] = '*' * len(cred['sdb_pwd'])
-        root_logger.error('Connection details missing: ' +
-                          ' '.join(tuple(['%s:%s' % (key, str(cred[key])) for key in cred.keys()])))
+        logging.getLogger().error('Connection details missing: ' +
+                                  ' '.join(tuple(['%s:%s' % (key, str(cred[key])) for key in cred.keys()])))
         raise SystemExit(1)
 
     mongo_client = pymongo.MongoClient(cred["sdb_host"], cred["sdb_port"])
@@ -72,6 +72,42 @@ def upsert(input_files, merge_props_mode, host, port, user, pwd, db):
     conn = get_db(host, port, user, pwd, db)
     signal_db = signaldb.SignalDb(conn)
     for input_file in input_files:
-        with open(input_file, 'r') as f:
-            instruments = json.load(f)
+        try:
+            with open(input_file, 'r') as f:
+                instruments = json.load(f)
+        except json.decoder.JSONDecodeError:
+            logging.getLogger().error('Error parsing JSON in %s' % input_file)
+            continue
         signal_db.upsert(instruments, merge_props_mode)
+
+
+@cli.command('get_props')
+@click.argument('source', nargs=1)
+@click.argument('ticker', nargs=1)
+@click.option('--host', default='', help='Specify mongodb host explicitly')
+@click.option('--port', default='', help='Specify mongodb port explicitly')
+@click.option('--user', default='', help='Specify mongodb user explicitly')
+@click.option('--pwd', default='', help='Specify mongodb credentials explicitly explicitly')
+@click.option('--db', default='market', help='Specify the database to connect to')
+def get_props(source, ticker, host, port, user, pwd, db):
+    conn = get_db(host, port, user, pwd, db)
+    signal_db = signaldb.SignalDb(conn)
+    pprint(signal_db.get_properties(source, ticker))
+
+
+@cli.command('find')
+@click.argument('filter_doc', nargs=1)
+@click.option('--host', default='', help='Specify mongodb host explicitly')
+@click.option('--port', default='', help='Specify mongodb port explicitly')
+@click.option('--user', default='', help='Specify mongodb user explicitly')
+@click.option('--pwd', default='', help='Specify mongodb credentials explicitly explicitly')
+@click.option('--db', default='market', help='Specify the database to connect to')
+def find(filter_doc, host, port, user, pwd, db):
+    try:
+        filter_doc = json.loads(filter_doc)
+    except json.decoder.JSONDecodeError:
+        logging.getLogger().error('Error parsing search query')
+        return
+    conn = get_db(host, port, user, pwd, db)
+    signal_db = signaldb.SignalDb(conn)
+    pprint(signal_db.find_instruments(filter_doc))
