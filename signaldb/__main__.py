@@ -62,16 +62,16 @@ def cli():
 
 @cli.command('upsert')
 @click.argument('input_files', nargs=-1)
-@click.option('--no_update', default=False, help="Do not update existing instruments")
+@click.option('--merge_props_mode', default='append', help="Do not update existing instruments")
 @click.option('--host', default='', help='Specify mongodb host explicitly')
 @click.option('--port', default='', help='Specify mongodb port explicitly')
 @click.option('--user', default='', help='Specify mongodb user explicitly')
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly explicitly')
 @click.option('--db', default='market', help='Specify the database to connect to')
-def upsert(input_files, no_update, host, port, user, pwd, db):
+def upsert(input_files, merge_props_mode, host, port, user, pwd, db):
     conn = get_db(host, port, user, pwd, db)
     signal_db = signaldb.SignalDb(conn)
     for input_file in input_files:
         with open(input_file, 'r') as f:
             instruments = json.load(f)
-        signal_db.upsert(instruments, True)
+        signal_db.upsert(instruments, merge_props_mode)

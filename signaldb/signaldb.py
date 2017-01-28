@@ -8,6 +8,17 @@ from collections import OrderedDict
 import pandas
 
 
+def merge_props(current_props, new_props, merge_props_mode):
+    """Add new properties to a given properties document."""
+    current_props_modified = False
+    if merge_props_mode == 'append':
+        for key in new_props:
+            if key not in current_props.keys():
+                current_props[key] = new_props[key]
+                current_props_modified = True
+    return current_props_modified
+
+
 class SignalDb:
     def __init__(self, db):
         self.logger = logging.getLogger(__name__)
@@ -28,7 +39,7 @@ class SignalDb:
 
     @staticmethod
     def __check_instrument(instrument):
-        """Checks if an instrument object has a valid type"""
+        """Check if an instrument object has a valid type."""
         if type(instrument) is not dict:
             return False
         if not all([k in instrument.keys() for k in ['tickers', 'properties', 'series']]):
@@ -52,7 +63,8 @@ class SignalDb:
     def remove_dangling_series(self):
         pass
 
-    def upsert(self, instruments, no_update=False):
+    def upsert(self, instruments, merge_props_mode='append'):
+        """Update or insert a list of instruments."""
         if type(instruments) not in [list, tuple, dict]:
             self.logger.error("upsert: supplied instrument data is not dict, list, or tuple")
             return False
@@ -62,10 +74,11 @@ class SignalDb:
             if not self.__check_instrument(instrument):
                 self.logger.error("upsert: supplied instrument (index no %d) has wrong type" % i)
                 continue
-            self.upsert_instrument(instrument, no_update)
+            self.upsert_instrument(instrument, merge_props_mode)
         return True
 
-    def upsert_instrument(self, instrument, no_update=False):
+    def upsert_instrument(self, instrument, merge_props_mode):
+        """Update or insert an instrument"""
         main_ticker = None
         for ticker in instrument['tickers']:
             ticker_record = self.db[self.tickers_col].find_one({'source': ticker[0], 'ticker': ticker[1]})
@@ -79,9 +92,8 @@ class SignalDb:
             self.logger.debug("Add new instrument with ticker (%s,%s)" % (first_ticker[0], first_ticker[1]))
             instrument_id = ObjectId()
 
-            tickers_for_insert = [{'source': ticker[0], 'ticker': ticker[1], 'instr_id': instrument_id}
-                                  for ticker in instrument['tickers']]
-
+            tickers_for_insert = [{'_id': ObjectId(), 'source': ticker[0], 'ticker': ticker[1],
+                                   'instr_id': instrument_id} for ticker in instrument['tickers']]
             instrument['properties']['_id'] = instrument_id
             instrument['properties']['series'] = {series_key: ObjectId() for series_key in instrument['series'].keys()}
 
@@ -90,46 +102,38 @@ class SignalDb:
                 series_id = instrument['properties']['series'][key]
                 for sample in series:
                     flat_series.append({'k': series_id, 't': sample[0], 'v': sample[1]})
-
             try:
                 self.db[self.tickers_col].insert(tickers_for_insert)
                 self.db[self.properties_col].insert_one(instrument['properties'])
             except KeyboardInterrupt:
-                # TODO delete the dangling tickers
-                #self.db[self.tickers_col].delete_many()
+                self.db[self.tickers_col].delete_many({'_id': {'$in': [t['_id'] for t in tickers_for_insert]}})
                 raise
         else:
             instrument_id = main_ticker['instr_id']
-            instrument_from_db = self.db[self.properties_col].find_one({'_id': instrument_id})
-            if instrument_from_db is None:
-                self.logger.warning('Reimport the dangling ticker (%s,%s)' %
+            current_props = self.db[self.properties_col].find_one({'_id': instrument_id})
+            if current_props is None:
+                self.logger.warning('Repair the dangling ticker (%s,%s)' %
                                     (main_ticker['source'], main_ticker['ticker']))
                 self.db[self.tickers_col].delete_one(main_ticker)
-                return self.upsert_instrument(instrument, no_update)
-            if no_update:
-                self.logger.debug('Skip updating the instrument (%s,%s)' % (first_ticker[0], first_ticker[1]))
-                return False
-            updated = False
+                return self.upsert_instrument(instrument, merge_props_mode)
+            updated = merge_props(current_props, instrument['properties'], merge_props_mode)
             for key in instrument['series'].keys():
                 series = instrument['series'][key]
                 series_id = ObjectId()
-                if key not in instrument_from_db['series'].keys():
+                if key not in current_props['series'].keys():
                     updated = True
-                    instrument_from_db['series'][key] = series_id
+                    current_props['series'][key] = series_id
                 else:
-                    series_id = instrument_from_db['series'][key]
+                    series_id = current_props['series'][key]
                 for sample in series:
                     flat_series.append({'k': series_id, 't': sample[0], 'v': sample[1]})
-                if updated:
-                    self.db[self.properties_col].replace_one({'_id': instrument_from_db['_id']}, instrument_from_db)
-                    self.logger.debug("Updated the properties of (%s,%s)" %
-                                      (main_ticker['source'], main_ticker['ticker']))
-
-        if len(flat_series) > 0:
-            self.__upsert_series(flat_series)
+            if updated:
+                self.db[self.properties_col].replace_one({'_id': current_props['_id']}, current_props)
+        self.__upsert_series(flat_series)
         return True
 
     def upsert_series(self, source: str, ticker, series_name: str, series):
+        """Upsert a series of an existing instrument."""
         if not self.__validate_series(series):
             self.logger.error("Invalid series for (%s,%s) provided." % (source, ticker))
             return False
@@ -155,6 +159,9 @@ class SignalDb:
         return True
 
     def __upsert_series(self, series):
+        """Insert a list of observations to the series col. Updates existing observations."""
+        if len(series) == 0:
+            return
         try:
             self.db[self.series_col].insert_many(series)
         except pymongo.errors.BulkWriteError:
@@ -174,6 +181,7 @@ class SignalDb:
         return instruments
 
     def get_properties(self, source: str, ticker: str):
+        """Returns the properties doc for a given ticker."""
         ticker_record = self.db[self.tickers_col].find_one({'source': source, 'ticker': ticker})
         if ticker_record is None:
             self.logger.info("Ticker (%s,%s) not found. " % (source, ticker))
