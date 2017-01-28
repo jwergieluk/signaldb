@@ -28,10 +28,22 @@ class SignalDb:
 
     @staticmethod
     def __check_instrument(instrument):
+        """Checks if an instrument object has a valid type"""
+        if type(instrument) is not dict:
+            return False
         if not all([k in instrument.keys() for k in ['tickers', 'properties', 'series']]):
+            return False
+        if type(instrument['tickers']) is not list:
             return False
         if len(instrument['tickers']) == 0:
             return False
+        for ticker in instrument['tickers']:
+            if type(ticker) not in [list, tuple]:
+                return False
+            if len(ticker) != 2:
+                return False
+            if not all([type(ticker_part) is str for ticker_part in ticker]):
+                return False
         return True
 
     def list_dangling_series(self):
@@ -40,13 +52,21 @@ class SignalDb:
     def remove_dangling_series(self):
         pass
 
-    def upsert(self, instrument):
-        if not self.__check_instrument(instrument):
-            self.logger.error("upsert: supplied instrument has wrong type.")
+    def upsert(self, instruments, no_update=False):
+        if type(instruments) not in [list, tuple, dict]:
+            self.logger.error("upsert: supplied instrument data is not dict, list, or tuple")
             return False
+        if type(instruments) is dict:
+            instruments = [instruments]
+        for i, instrument in enumerate(instruments):
+            if not self.__check_instrument(instrument):
+                self.logger.error("upsert: supplied instrument (index no %d) has wrong type" % i)
+                continue
+            self.upsert_instrument(instrument, no_update)
+        return True
 
+    def upsert_instrument(self, instrument, no_update=False):
         main_ticker = None
-        first_ticker = instrument['tickers'][0]
         for ticker in instrument['tickers']:
             ticker_record = self.db[self.tickers_col].find_one({'source': ticker[0], 'ticker': ticker[1]})
             if ticker_record is not None:
@@ -54,28 +74,40 @@ class SignalDb:
                 break
 
         flat_series = []
+        first_ticker = instrument['tickers'][0]
         if main_ticker is None:
             self.logger.debug("Add new instrument with ticker (%s,%s)" % (first_ticker[0], first_ticker[1]))
             instrument_id = ObjectId()
-            instrument['tickers'] = [{'source': ticker[0], 'ticker': ticker[1], 'instr_id': instrument_id}
-                                     for ticker in instrument['tickers']]
-            self.db[self.tickers_col].insert(instrument['tickers'])
+
+            tickers_for_insert = [{'source': ticker[0], 'ticker': ticker[1], 'instr_id': instrument_id}
+                                  for ticker in instrument['tickers']]
 
             instrument['properties']['_id'] = instrument_id
             instrument['properties']['series'] = {series_key: ObjectId() for series_key in instrument['series'].keys()}
-            self.db[self.properties_col].insert_one(instrument['properties'])
 
             for key in instrument['series'].keys():
                 series = instrument['series'][key]
                 series_id = instrument['properties']['series'][key]
                 for sample in series:
                     flat_series.append({'k': series_id, 't': sample[0], 'v': sample[1]})
+
+            try:
+                self.db[self.tickers_col].insert(tickers_for_insert)
+                self.db[self.properties_col].insert_one(instrument['properties'])
+            except KeyboardInterrupt:
+                # TODO delete the dangling tickers
+                #self.db[self.tickers_col].delete_many()
+                raise
         else:
             instrument_id = main_ticker['instr_id']
             instrument_from_db = self.db[self.properties_col].find_one({'_id': instrument_id})
             if instrument_from_db is None:
-                self.logger.warning("The ticker (%s,%s) points to a non-existent properties document." %
+                self.logger.warning('Reimport the dangling ticker (%s,%s)' %
                                     (main_ticker['source'], main_ticker['ticker']))
+                self.db[self.tickers_col].delete_one(main_ticker)
+                return self.upsert_instrument(instrument, no_update)
+            if no_update:
+                self.logger.debug('Skip updating the instrument (%s,%s)' % (first_ticker[0], first_ticker[1]))
                 return False
             updated = False
             for key in instrument['series'].keys():
