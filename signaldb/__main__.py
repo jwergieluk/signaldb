@@ -87,7 +87,7 @@ def upsert(input_files, merge_props_mode, host, port, user, pwd, db):
 @click.option('--host', default='', help='Specify mongodb host explicitly')
 @click.option('--port', default='', help='Specify mongodb port explicitly')
 @click.option('--user', default='', help='Specify mongodb user explicitly')
-@click.option('--pwd', default='', help='Specify mongodb credentials explicitly explicitly')
+@click.option('--pwd', default='', help='Specify mongodb credentials explicitly')
 @click.option('--db', default='market', help='Specify the database to connect to')
 def get_props(source, ticker, host, port, user, pwd, db):
     conn = get_db(host, port, user, pwd, db)

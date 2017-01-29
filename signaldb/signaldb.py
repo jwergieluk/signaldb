@@ -6,6 +6,8 @@ import pymongo.errors
 from bson.objectid import ObjectId
 from collections import OrderedDict
 import pandas
+import datetime
+import signaldb
 
 
 def merge_props(current_props, new_props, merge_props_mode):
@@ -41,29 +43,38 @@ class SignalDb:
     def __check_instrument(instrument):
         """Check if an instrument object has a valid type."""
         if type(instrument) is not dict:
-            return False
+            return 1
         if not all([k in instrument.keys() for k in ['tickers', 'properties', 'series']]):
-            return False
+            return 2
         if type(instrument['tickers']) is not list:
-            return False
+            return 3
         if len(instrument['tickers']) == 0:
-            return False
+            return 3
         for ticker in instrument['tickers']:
             if type(ticker) not in [list, tuple]:
-                return False
+                return 5
             if len(ticker) != 2:
-                return False
+                return 6
             if not all([type(ticker_part) is str for ticker_part in ticker]):
-                return False
+                return 7
             if not all([len(ticker_part) > 0 for ticker_part in ticker]):
-                return False
+                return 8
         if type(instrument['series']) is not dict:
-            return False
-        if not all([type(key) is str for key in instrument['series']]):
-            return False
-        if not all([len(key) > 0 for key in instrument['series']]):
-            return False
-        return True
+            return 9
+        for series_key in instrument['series']:
+            if type(series_key) is not str:
+                return 10
+            if len(series_key) == 0:
+                return 11
+            series = instrument['series'][series_key]
+            for sample in series:
+                if type(sample) not in [list, tuple]:
+                    return 12
+                if len(sample) != 2:
+                    return 13
+                if type(sample[0]) not in [datetime.date, datetime.datetime]:
+                    return 14
+        return 0
 
     def list_dangling_series(self):
         pass
@@ -78,9 +89,12 @@ class SignalDb:
             return False
         if type(instruments) is dict:
             instruments = [instruments]
+        signaldb.recursive_str_to_datetime(instruments)
         for i, instrument in enumerate(instruments):
-            if not self.__check_instrument(instrument):
-                self.logger.error("upsert: supplied instrument (index no %d) has wrong type" % i)
+            check_result = self.__check_instrument(instrument)
+            if check_result != 0:
+                self.logger.error("upsert: supplied instrument has wrong type (index no %d; failed test %d)." %
+                                  (i, check_result))
                 continue
             self.upsert_instrument(instrument, merge_props_mode)
         return True
