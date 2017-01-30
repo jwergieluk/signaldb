@@ -1,6 +1,8 @@
 import pytz
 import rfc3339
 import re
+import datetime
+import json
 
 
 def str_to_datetime(s):
@@ -25,3 +27,11 @@ def recursive_str_to_datetime(obj):
                     obj[key] = str_to_datetime(obj[key])
             else:
                 recursive_str_to_datetime(obj[key])
+
+
+class JSONEncoderExtension(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime.datetime):
+            return rfc3339.datetimetostr(obj)
+        # Let the base class default method raise the TypeError
+        return json.JSONEncoder.default(self, obj)

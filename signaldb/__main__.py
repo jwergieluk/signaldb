@@ -7,6 +7,7 @@ import click
 import logging
 import os
 import json
+import datetime
 from pprint import pprint
 
 
@@ -35,7 +36,7 @@ def get_db(host, port, user, pwd, db_name):
 
     if len(host) != 0:
         cred['sdb_host'] = host
-    if len(port) != 0:
+    if len(str(port)) != 0:
         cred['sdb_port'] = port
     if len(user) != 0:
         cred['sdb_user'] = user
@@ -108,7 +109,8 @@ def get_series(source, ticker, print_json, host, port, user, pwd, db):
     conn = get_db(host, port, user, pwd, db)
     signal_db = signaldb.SignalDb(conn)
     if print_json:
-        pprint(signal_db.get_series(source, ticker))
+        output_str = json.dumps(signal_db.get_series(source, ticker), cls=signaldb.JSONEncoderExtension)
+        click.echo(output_str)
     else:
         print(signal_db.get_pandas(source, ticker).to_csv(None, sep=' '))
 
@@ -129,3 +131,38 @@ def find(filter_doc, host, port, user, pwd, db):
     conn = get_db(host, port, user, pwd, db)
     signal_db = signaldb.SignalDb(conn)
     pprint(signal_db.find_instruments(filter_doc))
+
+
+@cli.command('exportba')
+@click.option('--host', default='', help='Specify mongodb host explicitly')
+@click.option('--port', default='', type=int, help='Specify mongodb port explicitly')
+@click.option('--user', default='', help='Specify mongodb user explicitly')
+@click.option('--pwd', default='', help='Specify mongodb credentials explicitly explicitly')
+@click.option('--db', default='market', help='Specify the database to connect to')
+def exportba(host, port, user, pwd, db):
+    eex = get_db(host, port, user, pwd, db)
+    curves = eex['BidAskCurves'].find({})
+    instr_dict = {}
+    for curve in curves:
+        ticker_name = 'spot-curve-%s-%s' % (curve['MarketAreaName'], curve['TimeStepID'])
+        ticker = ('epex-spot', ticker_name)
+
+        props = {'MarketAreaName': curve['MarketAreaName'], 'TimeStepID': curve['TimeStepID'],
+                 'category': 'epex-spot-curves'}
+        timestamp = str(curve['Day'])
+        timestamp = datetime.datetime.strptime(timestamp, "%Y%m%d")
+        timestamp.replace(hour=12, minute=0, second=0, microsecond=0)
+
+        if ticker not in instr_dict.keys():
+            series = {'PurchasePrice': [], 'PurchaseVolume': [], 'SellPrice': [], 'SellVolume': []}
+            instr_dict[ticker] = dict(properties=props, tickers=[ticker], series=series)
+
+        series = instr_dict[ticker]['series']
+        series['PurchasePrice'].append([timestamp, curve['PurchasePrice']])
+        series['PurchaseVolume'].append([timestamp, curve['PurchaseVolume']])
+        series['SellPrice'].append([timestamp, curve['SellPrice']])
+        series['SellVolume'].append([timestamp, curve['SellVolume']])
+
+    output_str = json.dumps(list(instr_dict.values()), cls=signaldb.JSONEncoderExtension)
+    print(output_str)
+
