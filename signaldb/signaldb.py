@@ -231,12 +231,15 @@ class SignalDb:
         for ref in instrument['series'].items():
             times = []
             values = []
+            observations = []
             cursor = self.db[self.series_col].find({'k': ref[1]})
             for item in cursor:
                 times.append(item['t'])
                 values.append(item['v'])
+                observations.append([item['t'], item['v']])
 
-            series[ref[0]] = {'t': times, 'v': values}
+#            series[ref[0]] = {'t': times, 'v': values}
+            series[ref[0]] = observations
         return series
 
     def get_pandas(self, source: str, ticker: str):
