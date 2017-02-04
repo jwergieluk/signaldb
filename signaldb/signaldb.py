@@ -22,7 +22,6 @@ def merge_props(current_props, new_props, merge_props_mode):
 class SignalDb:
     def __init__(self, db):
         self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(logging.DEBUG)
         self.db = db
         self.properties_col = 'properties'
         self.tickers_col = 'tickers'
@@ -86,6 +85,9 @@ class SignalDb:
 
     def upsert(self, instruments, merge_props_mode='append'):
         """Update or insert a list of instruments."""
+        if merge_props_mode not in ['append', 'add']:
+            self.logger.error('Requested merge mode is not supported yet.')
+            return False
         if type(instruments) not in [list, tuple, dict]:
             self.logger.error("upsert: supplied instrument data is not dict, list, or tuple")
             return False
@@ -155,32 +157,7 @@ class SignalDb:
                 self.db[self.properties_col].replace_one({'_id': current_props['_id']}, current_props)
         self.__upsert_series(flat_series)
         instrument['properties'].pop('series', None)
-        return True
-
-    def upsert_series(self, source: str, ticker, series_name: str, series):
-        """Upsert a series of an existing instrument."""
-        if not self.__validate_series(series):
-            self.logger.error("Invalid series for (%s,%s) provided." % (source, ticker))
-            return False
-        instrument = self.get_properties(source, ticker)
-        if instrument is None:
-            self.logger.error("(%s,%s) not found." % (source, ticker))
-            return False
-
-        series_id = ObjectId()
-        if 'series' not in instrument.keys():
-            instrument['series'] = dict()
-        if series_name not in instrument['series'].keys():
-            instrument['series'][series_name] = series_id
-            self.db[self.properties_col].replace_one({'_id': instrument['_id']}, instrument)
-        else:
-            series_id = instrument['series'][series_name]
-
-        series_for_insert = []
-        for sample in series:
-            series_for_insert.append(dict(k=series_id, t=sample[0], v=sample[1]))
-
-        self.__upsert_series(series_for_insert)
+        instrument['properties'].pop('_id', None)
         return True
 
     def __upsert_series(self, series):
