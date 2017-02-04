@@ -1,13 +1,11 @@
 #!/bin/env python3
 
+import datetime
 import logging
 import pymongo
 import pymongo.errors
-from bson.objectid import ObjectId
-from collections import OrderedDict
-import pandas
-import datetime
 import signaldb
+from bson.objectid import ObjectId
 
 
 def merge_props(current_props, new_props, merge_props_mode):
@@ -44,7 +42,7 @@ class SignalDb:
         self.db[self.properties_col].delete_many({})
 
     @staticmethod
-    def __check_instrument(instrument):
+    def check_instrument(instrument):
         """Check if an instrument object has a valid type."""
         if type(instrument) is not dict:
             return 1
@@ -95,15 +93,15 @@ class SignalDb:
             instruments = [instruments]
         signaldb.recursive_str_to_datetime(instruments)
         for i, instrument in enumerate(instruments):
-            check_result = self.__check_instrument(instrument)
+            check_result = self.check_instrument(instrument)
             if check_result != 0:
                 self.logger.error("upsert: supplied instrument has wrong type (index no %d; failed test %d)." %
                                   (i, check_result))
                 continue
-            self.upsert_instrument(instrument, merge_props_mode)
+            self.__upsert_instrument(instrument, merge_props_mode)
         return True
 
-    def upsert_instrument(self, instrument, merge_props_mode):
+    def __upsert_instrument(self, instrument, merge_props_mode):
         """Update or insert an instrument"""
         main_ticker = None
         for ticker in instrument['tickers']:
@@ -141,7 +139,7 @@ class SignalDb:
                 self.logger.warning('Repair the dangling ticker (%s,%s)' %
                                     (main_ticker['source'], main_ticker['ticker']))
                 self.db[self.tickers_col].delete_one(main_ticker)
-                return self.upsert_instrument(instrument, merge_props_mode)
+                return self.__upsert_instrument(instrument, merge_props_mode)
             updated = merge_props(current_props, instrument['properties'], merge_props_mode)
             for key in instrument['series'].keys():
                 series = instrument['series'][key]
@@ -156,6 +154,7 @@ class SignalDb:
             if updated:
                 self.db[self.properties_col].replace_one({'_id': current_props['_id']}, current_props)
         self.__upsert_series(flat_series)
+        instrument['properties'].pop('series', None)
         return True
 
     def upsert_series(self, source: str, ticker, series_name: str, series):
@@ -206,50 +205,34 @@ class SignalDb:
             instruments.append(instrument)
         return instruments
 
-    def get_properties(self, source: str, ticker: str):
-        """Returns the properties doc for a given ticker."""
+    def get(self, source: str, ticker: str):
+        """Find a single instrument and return it in the standard form"""
         ticker_record = self.db[self.tickers_col].find_one({'source': source, 'ticker': ticker})
         if ticker_record is None:
             self.logger.info("Ticker (%s,%s) not found. " % (source, ticker))
             return None
-        instrument_from_db = self.db[self.properties_col].find_one({'_id': ticker_record['instr_id']})
-        if instrument_from_db is None:
+        properties = self.db[self.properties_col].find_one({'_id': ticker_record['instr_id']})
+        if properties is None:
             self.logger.warning("The ticker (%s,%s) points to a non-existent properties document." % (source, ticker))
             return None
-        return instrument_from_db
-
-    def get_series(self, source: str, ticker: str):
-        instrument = self.get_properties(source, ticker)
-        if 'series' not in instrument.keys():
-            self.logger.error('The instrument (%s,%s) has no series attached.' % (source, ticker))
-            return None
+        instrument = dict(properties=properties, tickers=[[source, ticker], ])
+        if 'series' not in properties.keys():
+            self.logger.warning('The instrument (%s,%s) has no series attached.' % (source, ticker))
+            instrument['series'] = {}
+            return instrument
+        instrument['series'] = properties.pop('series')
         if len(instrument['series']) == 0:
-            self.logger.warn('Instrument %s has no series attached.' % ticker_full_name)
-            return None
-
+            self.logger.warning('Instrument (%s,%s) has no series attached.' % (source, ticker))
+            return instrument
         series = {}
         for ref in instrument['series'].items():
-            times = []
-            values = []
             observations = []
             cursor = self.db[self.series_col].find({'k': ref[1]})
             for item in cursor:
-                times.append(item['t'])
-                values.append(item['v'])
                 observations.append([item['t'], item['v']])
-
-#            series[ref[0]] = {'t': times, 'v': values}
             series[ref[0]] = observations
-        return series
-
-    def get_pandas(self, source: str, ticker: str):
-        series = self.get_series(source, ticker)
-        if series is None:
-            return None
-        list_of_pandas = []
-        for key in series.keys():
-            list_of_pandas.append(pandas.Series(series[key]['v'], index=series[key]['t'], name=key))
-        return pandas.concat(list_of_pandas, axis=1)
+        instrument['series'] = series
+        return instrument
 
     @staticmethod
     def __validate_series(series):

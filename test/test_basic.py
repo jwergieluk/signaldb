@@ -30,22 +30,34 @@ class SignalDbTest(unittest.TestCase):
     def tearDown(self):
         super().tearDown()
 
+    def test_get_nonexistent(self):
+        instruments = InstrumentFaker.get_equity(5)
+        self.assertTrue(self.db.upsert(instruments))
+
+        self.assertIsNone(self.db.get('', 'null_ticker'))
+        self.assertIsNone(self.db.get('my_source', ''))
+        self.assertIsNone(self.db.get('', ''))
+        self.assertIsNone(self.db.get('my_source', 'null_ticker'))
+
     def test_upsert_and_check(self):
         """Insert a bunch of instruments, retrieve them back from the db and test if we get the same data"""
-        instruments = InstrumentFaker.get_equity(5)
+        instruments = InstrumentFaker.get_equity(7)
         self.assertTrue(self.db.upsert(instruments))
 
         for instrument in instruments:
             for ticker in instrument['tickers']:
                 with self.subTest(context=ticker):
-                    properties_from_db = self.db.get_properties(ticker[0], ticker[1])
-                    self.assertIsNotNone(properties_from_db)
+                    instrument_from_db = self.db.get(ticker[0], ticker[1])
+                    self.assertEqual(self.db.check_instrument(instrument_from_db), 0)
+
+                    """Test get_properties"""
+                    properties_from_db = instrument_from_db['properties']
                     for property_key in instrument['properties'].keys():
                         self.assertTrue(property_key in properties_from_db)
                         self.assertEqual(instrument['properties'][property_key], properties_from_db[property_key])
-                with self.subTest(context=ticker):
-                    series_from_db = self.db.get_series(ticker[0], ticker[1])
-                    self.assertIsNotNone(series_from_db)
+
+                    """Test get_series"""
+                    series_from_db = instrument_from_db['series']
                     series_original = instrument['series']
                     for series_key in series_original.keys():
                         self.assertListEqual(series_from_db[series_key], series_original[series_key])

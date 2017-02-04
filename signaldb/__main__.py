@@ -43,7 +43,7 @@ def upsert(input_files, merge_props_mode, host, port, user, pwd, db):
         signal_db.upsert(instruments, merge_props_mode)
 
 
-@cli.command('get_props')
+@cli.command('get')
 @click.argument('source', nargs=1)
 @click.argument('ticker', nargs=1)
 @click.option('--host', default='', help='Specify mongodb host explicitly')
@@ -54,26 +54,7 @@ def upsert(input_files, merge_props_mode, host, port, user, pwd, db):
 def get_props(source, ticker, host, port, user, pwd, db):
     conn = signaldb.get_db(host, port, user, pwd, db)
     signal_db = signaldb.SignalDb(conn)
-    pprint(signal_db.get_properties(source, ticker))
-
-
-@cli.command('get_series')
-@click.argument('source', nargs=1)
-@click.argument('ticker', nargs=1)
-@click.option('--print_json', is_flag=True)
-@click.option('--host', default='', help='Specify mongodb host explicitly')
-@click.option('--port', default='', help='Specify mongodb port explicitly')
-@click.option('--user', default='', help='Specify mongodb user explicitly')
-@click.option('--pwd', default='', help='Specify mongodb credentials explicitly explicitly')
-@click.option('--db', default='market', help='Specify the database to connect to')
-def get_series(source, ticker, print_json, host, port, user, pwd, db):
-    conn = signaldb.get_db(host, port, user, pwd, db)
-    signal_db = signaldb.SignalDb(conn)
-    if print_json:
-        output_str = json.dumps(signal_db.get_series(source, ticker), cls=signaldb.JSONEncoderExtension)
-        click.echo(output_str)
-    else:
-        print(signal_db.get_pandas(source, ticker).to_csv(None, sep=' '))
+    pprint(signal_db.get(source, ticker))
 
 
 @cli.command('find')
