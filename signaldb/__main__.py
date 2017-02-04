@@ -1,15 +1,12 @@
 #!/bin/env python3
 
-import pymongo
-import pymongo.errors
-import signaldb
-import click
-import logging
-import os
-import json
 import datetime
+import json
+import logging
 from pprint import pprint
 
+import click
+import signaldb
 
 root_logger = logging.getLogger('')
 root_logger.setLevel(logging.INFO)
@@ -17,42 +14,6 @@ console = logging.StreamHandler()
 formatter = logging.Formatter('# %(levelname)s | %(asctime)s | %(name)s | %(message)s', datefmt='%Y%m%d %H:%M:%S')
 console.setFormatter(formatter)
 root_logger.addHandler(console)
-
-
-def read_values_from_env(conf: dict):
-    status = True
-    for key in os.environ.keys() & conf.keys():
-        try:
-            conf[key] = type(conf[key])(os.environ[key])
-        except ValueError:
-            logging.getLogger().warning("Failed reading %s from environment." % key)
-            status = False
-    return status
-
-
-def get_db(host, port, user, pwd, db_name):
-    cred = {"sdb_host": "", "sdb_port": 27017, "sdb_user": "", "sdb_pwd": ""}
-    read_values_from_env(cred)
-
-    if len(host) != 0:
-        cred['sdb_host'] = host
-    if len(str(port)) != 0:
-        cred['sdb_port'] = port
-    if len(user) != 0:
-        cred['sdb_user'] = user
-    if len(pwd) != 0:
-        cred['sdb_pwd'] = pwd
-
-    if not all([len(str(cred[key])) > 0 for key in cred.keys()]):
-        cred['sdb_pwd'] = '*' * len(cred['sdb_pwd'])
-        logging.getLogger().error('Connection details missing: ' +
-                                  ' '.join(tuple(['%s:%s' % (key, str(cred[key])) for key in cred.keys()])))
-        raise SystemExit(1)
-
-    mongo_client = pymongo.MongoClient(cred["sdb_host"], cred["sdb_port"])
-    db = mongo_client[db_name]
-    db.authenticate(cred["sdb_user"], cred["sdb_pwd"], source='admin')
-    return db
 
 
 @click.group()
@@ -70,7 +31,7 @@ def cli():
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly explicitly')
 @click.option('--db', default='market', help='Specify the database to connect to')
 def upsert(input_files, merge_props_mode, host, port, user, pwd, db):
-    conn = get_db(host, port, user, pwd, db)
+    conn = signaldb.get_db(host, port, user, pwd, db)
     signal_db = signaldb.SignalDb(conn)
     for input_file in input_files:
         try:
@@ -91,7 +52,7 @@ def upsert(input_files, merge_props_mode, host, port, user, pwd, db):
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly')
 @click.option('--db', default='market', help='Specify the database to connect to')
 def get_props(source, ticker, host, port, user, pwd, db):
-    conn = get_db(host, port, user, pwd, db)
+    conn = signaldb.get_db(host, port, user, pwd, db)
     signal_db = signaldb.SignalDb(conn)
     pprint(signal_db.get_properties(source, ticker))
 
@@ -106,7 +67,7 @@ def get_props(source, ticker, host, port, user, pwd, db):
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly explicitly')
 @click.option('--db', default='market', help='Specify the database to connect to')
 def get_series(source, ticker, print_json, host, port, user, pwd, db):
-    conn = get_db(host, port, user, pwd, db)
+    conn = signaldb.get_db(host, port, user, pwd, db)
     signal_db = signaldb.SignalDb(conn)
     if print_json:
         output_str = json.dumps(signal_db.get_series(source, ticker), cls=signaldb.JSONEncoderExtension)
@@ -128,7 +89,7 @@ def find(filter_doc, host, port, user, pwd, db):
     except json.decoder.JSONDecodeError:
         logging.getLogger().error('Error parsing search query')
         return
-    conn = get_db(host, port, user, pwd, db)
+    conn = signaldb.get_db(host, port, user, pwd, db)
     signal_db = signaldb.SignalDb(conn)
     pprint(signal_db.find_instruments(filter_doc))
 
@@ -139,9 +100,10 @@ def find(filter_doc, host, port, user, pwd, db):
 @click.option('--user', default='', help='Specify mongodb user explicitly')
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly explicitly')
 @click.option('--db', default='market', help='Specify the database to connect to')
-def exportba(host, port, user, pwd, db):
-    eex = get_db(host, port, user, pwd, db)
-    curves = eex['BidAskCurves'].find({})
+@click.option('--day', type=int)
+def exportba(host, port, user, pwd, db, day):
+    eex = signaldb.get_db(host, port, user, pwd, db)
+    curves = eex['BidAskCurves'].find({'Day': day})
     instr_dict = {}
     for curve in curves:
         ticker_name = 'spot-curve-%s-%s' % (curve['MarketAreaName'], curve['TimeStepID'])

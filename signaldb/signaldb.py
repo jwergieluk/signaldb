@@ -36,8 +36,12 @@ class SignalDb:
         self.db[self.series_col].create_index(
             [('k', pymongo.ASCENDING), ('t', pymongo.ASCENDING)], unique=True, name='k_t_index')
 
-    def props(self):
-        return self.db[self.properties_col]
+    def purge_db(self):
+        """Remove all data from the database."""
+        self.logger.debug('Removing all data from db.')
+        self.db[self.tickers_col].delete_many({})
+        self.db[self.series_col].delete_many({})
+        self.db[self.properties_col].delete_many({})
 
     @staticmethod
     def __check_instrument(instrument):

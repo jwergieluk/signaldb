@@ -3,6 +3,9 @@ import rfc3339
 import re
 import datetime
 import json
+import logging
+import os
+import pymongo
 
 
 def str_to_datetime(s):
@@ -35,3 +38,39 @@ class JSONEncoderExtension(json.JSONEncoder):
             return rfc3339.datetimetostr(obj)
         # Let the base class default method raise the TypeError
         return json.JSONEncoder.default(self, obj)
+
+
+def read_values_from_env(conf: dict):
+    status = True
+    for key in os.environ.keys() & conf.keys():
+        try:
+            conf[key] = type(conf[key])(os.environ[key])
+        except ValueError:
+            logging.getLogger().warning("Failed reading %s from environment." % key)
+            status = False
+    return status
+
+
+def get_db(host, port, user, pwd, db_name):
+    cred = {"sdb_host": "", "sdb_port": 27017, "sdb_user": "", "sdb_pwd": ""}
+    read_values_from_env(cred)
+
+    if len(host) != 0:
+        cred['sdb_host'] = host
+    if len(str(port)) != 0:
+        cred['sdb_port'] = port
+    if len(user) != 0:
+        cred['sdb_user'] = user
+    if len(pwd) != 0:
+        cred['sdb_pwd'] = pwd
+
+    if not all([len(str(cred[key])) > 0 for key in cred.keys()]):
+        cred['sdb_pwd'] = '*' * len(cred['sdb_pwd'])
+        logging.getLogger().error('Connection details missing: ' +
+                                  ' '.join(tuple(['%s:%s' % (key, str(cred[key])) for key in cred.keys()])))
+        raise SystemExit(1)
+
+    mongo_client = pymongo.MongoClient(cred["sdb_host"], cred["sdb_port"])
+    db = mongo_client[db_name]
+    db.authenticate(cred["sdb_user"], cred["sdb_pwd"], source='admin')
+    return db
