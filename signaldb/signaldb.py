@@ -38,11 +38,15 @@ class SignalDb:
         self.source_max_len = 256
         self.ticker_max_len = 256
 
-        self.db[self.refs_col].create_index(
-            [('source', pymongo.ASCENDING), ('ticker', pymongo.ASCENDING)], unique=True, name='source_ticker_index')
-        self.db[self.refs_col].create_index('instr_id', unique=False, name='instr_id_index')
-        self.db[self.sheets_col].create_index(
-            [('k', pymongo.ASCENDING), ('t', pymongo.ASCENDING)], unique=True, name='k_t_index')
+        try:
+            self.db[self.refs_col].create_index(
+                [('source', pymongo.ASCENDING), ('ticker', pymongo.ASCENDING)], unique=True, name='source_ticker_index')
+            self.db[self.refs_col].create_index('instr_id', unique=False, name='instr_id_index')
+            self.db[self.sheets_col].create_index(
+                [('k', pymongo.ASCENDING), ('t', pymongo.ASCENDING)], unique=True, name='k_t_index')
+        except pymongo.errors.OperationFailure:
+            self.logger.error('Cannot access the db')
+            raise ConnectionAbortedError('Cannot access the db')
 
     def purge_db(self):
         """Remove all data from the database."""
