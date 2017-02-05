@@ -8,14 +8,24 @@ import signaldb
 from bson.objectid import ObjectId
 
 
-def merge_props(current_props, new_props, merge_props_mode):
+def merge_props(current_props: dict, new_props: dict, merge_props_mode: str):
     """Add new properties to a given properties document."""
+    assert merge_props_mode in ['append', 'replace']
     current_props_modified = False
     if merge_props_mode == 'append':
         for key in new_props:
             if key not in current_props.keys():
                 current_props[key] = new_props[key]
                 current_props_modified = True
+    if merge_props_mode == 'replace':
+        for key in new_props.keys():
+            current_props[key] = new_props[key]
+            current_props_modified = True
+        for key in set(current_props.keys()) - set(new_props.keys()):
+            if key in ['series', '_id']:
+                continue
+            current_props.pop(key, None)
+            current_props_modified = True
     return current_props_modified
 
 
@@ -26,6 +36,8 @@ class SignalDb:
         self.properties_col = 'properties'
         self.tickers_col = 'tickers'
         self.series_col = 'series'
+        self.source_max_len = 256
+        self.ticker_max_len = 256
 
         self.db[self.tickers_col].create_index(
             [('source', pymongo.ASCENDING), ('ticker', pymongo.ASCENDING)], unique=True, name='source_ticker_index')
@@ -77,15 +89,55 @@ class SignalDb:
                     return 14
         return 0
 
-    def list_dangling_series(self):
+    def rename(self, source_old: str, ticker_old: str, source_new: str, ticker_new: str):
+        """Alter a ticker"""
         pass
 
-    def remove_dangling_series(self):
+    def delete(self, source: str, ticker: str):
+        """Delete an instrument"""
         pass
+
+    def list_tickers(self, source=''):
+        """Return a list of all available tickers matching a given source"""
+        if type(source) is not str:
+            self.logger.error('Source must be a string')
+            return None
+        if len(source) > self.source_max_len:
+            self.logger.error('source str length exceeded')
+            return None
+        if len(source) == 0:
+            cursor = self.db[self.tickers_col].find({})
+        else:
+            cursor = self.db[self.tickers_col].find({'source': source})
+        if cursor is None:
+            self.logger.error('Error querying the db')
+            return None
+        ticker_list = []
+        for label in cursor:
+            if 'source' not in label.keys() or 'ticker' not in label.keys():
+                self.logger.error('Erroneous ticker document found. Check the db!')
+                return None
+            ticker_list.append((label['source'], label['ticker']))
+        return ticker_list
+
+    def __validate_source_ticker(self, source: str, ticker: str):
+        return self.__validate_label(source, self.source_max_len, 'source') and \
+               self.__validate_label(ticker, self.ticker_max_len, 'ticker')
+
+    def __validate_label(self, label: str, max_len: int, label_name: str):
+        if type(label) is not str:
+            self.logger.error('%s must be a str' % label_name)
+            return False
+        if len(label) > max_len:
+            self.logger.error('%s str max length exceeded')
+            return False
+        if len(label) == 0:
+            self.logger.error('Given %s is empty')
+        return True
 
     def upsert(self, instruments, merge_props_mode='append'):
         """Update or insert a list of instruments."""
-        if merge_props_mode not in ['append', 'add']:
+        if merge_props_mode not in ['append', 'replace']:
             self.logger.error('Requested merge mode is not supported yet.')
             return False
         if type(instruments) not in [list, tuple, dict]:
@@ -153,6 +205,10 @@ class SignalDb:
                     series_id = current_props['series'][key]
                 for sample in series:
                     flat_series.append({'k': series_id, 't': sample[0], 'v': sample[1]})
+            for key in set(current_props['series'].keys()) - set(instrument['series'].keys()):
+                removed_series_id = current_props['series'].pop(key, None)
+                self.db[self.series_col].delete_many({'_id': removed_series_id})
+                updated = True
             if updated:
                 self.db[self.properties_col].replace_one({'_id': current_props['_id']}, current_props)
         self.__upsert_series(flat_series)
@@ -211,6 +267,8 @@ class SignalDb:
         instrument['series'] = series
         return instrument
 
-    @staticmethod
-    def __validate_series(series):
-        return True
+    def list_dangling_series(self):
+        pass
+
+    def remove_dangling_series(self):
+        pass

@@ -32,6 +32,25 @@ class SignalDbTest(unittest.TestCase):
     def tearDown(self):
         super().tearDown()
 
+    def test_list_tickers(self):
+        self.db.purge_db()
+        instruments = InstrumentFaker.get(self.instruments_no)
+        self.assertTrue(self.db.upsert(instruments))
+
+        # Check if erroneous queries return None
+        self.assertIsNone(self.db.list_tickers(0))
+        self.assertListEqual(self.db.list_tickers('other_source'), [])
+
+        tickers = [tuple(ticker) for i in instruments for ticker in i['tickers']]
+        tickers_from_db = self.db.list_tickers()
+        self.assertIsInstance(tickers_from_db, list)
+        self.assertSetEqual(set(tickers), set(tickers_from_db))
+
+        tickers = [t for t in tickers if t[0] == 'ISIN']
+        tickers_from_db = self.db.list_tickers('ISIN')
+        self.assertIsInstance(tickers_from_db, list)
+        self.assertSetEqual(set(tickers), set(tickers_from_db))
+
     def test_get_nonexistent(self):
         instruments = InstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
@@ -46,7 +65,7 @@ class SignalDbTest(unittest.TestCase):
         self.assertFalse(self.db.upsert(instruments, merge_props_mode='unsupported'))
 
     def test_upsert_props_append(self):
-        """Test if updating existing instruments works as expected"""
+        """Test the append mode for updating properties"""
         instruments = InstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
 
@@ -60,6 +79,17 @@ class SignalDbTest(unittest.TestCase):
         for instrument in instruments_with_props_removed:
             instrument['properties'].pop('company_name', None)
         self.assertTrue(self.db.upsert(instruments_with_props_removed, 'append'))
+        for instrument in instruments:
+            self.compare_instrument_with_db(instrument)
+
+    def test_upsert_props_replace(self):
+        """Test the replace mode for updating properties"""
+        instruments = InstrumentFaker.get(self.instruments_no)
+        self.assertTrue(self.db.upsert(instruments))
+        for instrument in instruments:
+            instrument['properties']['extra_property'] = InstrumentFaker.fake.phone_number()
+            instrument['properties'].pop('company_name', None)
+        self.assertTrue(self.db.upsert(instruments, 'replace'))
         for instrument in instruments:
             self.compare_instrument_with_db(instrument)
 
@@ -126,16 +156,34 @@ class InstrumentFaker:
     def get(cls, n=1):
         instruments = []
         for i in range(n):
-            instrument = {'tickers': cls.get_tickers(), 'properties': cls.get_equity_props(),
-                          'series': {'price': cls.get_series()}}
+            instrument = {'tickers': cls.get_tickers(), 'properties': cls.get_props(),
+                          'series': {'price': cls.get_series(), 'volume': cls.get_series()}}
             instruments.append(instrument)
         return instruments
+
+    @classmethod
+    def get_props(cls):
+        instrument_type = random.choice(['equity', 'equity_option'])
+        if instrument_type == 'equity':
+            return cls.get_equity_props()
+        if instrument_type == 'equity_option':
+            return cls.get_equity_option_props()
+        return {}
 
     @classmethod
     def get_equity_props(cls):
         properties = {'category': 'equity',
                       'company_name': cls.fake.company(),
                       'country_code': cls.fake.country_code()}
+        return properties
+
+    @classmethod
+    def get_equity_option_props(cls):
+        properties = {'category': 'equity-option',
+                      'underlying_entity': cls.fake.company(),
+                      'strike': random.expovariate(100),
+                      'maturity': cls.fake.date_time_this_century(after_now=True),
+                      'option_type': random.choice(['put', 'call'])}
         return properties
 
     @classmethod
