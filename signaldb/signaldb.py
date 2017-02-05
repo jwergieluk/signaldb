@@ -195,12 +195,13 @@ class SignalDb:
 
     def __upsert_instrument(self, instrument, merge_props_mode):
         """Update or insert an instrument"""
-        main_ref = self.__find_one_ref(instrument['tickers'])
+        now = datetime.datetime.now()  # TODO replace with with server time
+        main_ref = self.__find_one_ref(instrument['tickers'], now)
 
         if main_ref is None:
-            self.__insert_instrument(instrument)
+            self.__insert_instrument(instrument, now)
         else:
-            self.__update_instrument(instrument, main_ref, merge_props_mode)
+            self.__update_instrument(instrument, main_ref, merge_props_mode, now)
 
         # Remove helper fields added to the input instrument object
         instrument['properties'].pop('series', None)
@@ -225,38 +226,49 @@ class SignalDb:
     def remove_dangling_series(self):
         pass
 
-    def __find_one_ref(self, tickers):
+    def __find_one_ref(self, tickers, now):
         for ticker in tickers:
-            ticker_record = self.db[self.refs_col].find_one({'source': ticker[0], 'ticker': ticker[1]})
+            filter_doc = {'source': ticker[0], 'ticker': ticker[1], 'valid_until': {'$gt': now}}
+            ticker_record = self.db[self.refs_col].find_one(filter_doc)
             if ticker_record is not None:
                 return ticker_record
         return None
 
-    def __insert_instrument(self, instrument):
+    def __insert_instrument(self, instrument, now):
         first_ticker = instrument['tickers'][0]
         self.logger.debug("Add new instrument with ticker (%s,%s)" % (first_ticker[0], first_ticker[1]))
-        instrument_id = ObjectId()
 
-        tickers_for_insert = [{'_id': ObjectId(), 'source': ticker[0], 'ticker': ticker[1],
-                               'instr_id': instrument_id} for ticker in instrument['tickers']]
-        instrument['properties']['_id'] = instrument_id
-        instrument['properties']['series'] = {series_key: ObjectId() for series_key in instrument['series'].keys()}
+        refs_to_insert = self.__prepare_refs(instrument['tickers'])
+        props_id = refs_to_insert[0]['props']
+        series_id = refs_to_insert[0]['series']
+        scenarios_id = refs_to_insert[0]['scenarios']
+        instr_id = refs_to_insert[0]['instr_id']
+
+        props_obj = {'_id': ObjectId(), 'k': props_id, 'r': now, 'v': instrument['properties']}
+        series_refs = {key: ObjectId() for key in instrument['series'].keys()}
+        series_obj = {'_id': ObjectId(), 'k': series_id, 'r': now, 'v': series_refs}
+
+        instrument['properties']['_id'] = instr_id
+        instrument['properties']['series'] = series_refs
 
         flat_series = []
-        for key in instrument['series'].keys():
-            series = instrument['series'][key]
-            series_id = instrument['properties']['series'][key]
-            for sample in series:
-                flat_series.append({'k': series_id, 't': sample[0], 'v': sample[1]})
+        for key in series_refs:
+            series_data = instrument['series'][key]
+            for sample in series_data:
+                flat_series.append({'k': series_refs[key], 'r': now, 't': sample[0], 'v': sample[1]})
+
         try:
-            self.db[self.refs_col].insert(tickers_for_insert)
-            self.db[self.paths_col].insert_one(instrument['properties'])
+            self.db[self.refs_col].insert(refs_to_insert)
+            self.db[self.paths_col].insert_one(instrument['properties'])  # TODO delete me
+            self.db[self.paths_col].insert_one(props_obj)
+            self.db[self.paths_col].insert_one(series_obj)
         except KeyboardInterrupt:
-            self.db[self.refs_col].delete_many({'_id': {'$in': [t['_id'] for t in tickers_for_insert]}})
+            # TODO add revision-aware unwind (low priority)
+            self.db[self.refs_col].delete_many({'_id': {'$in': [t['_id'] for t in refs_to_insert]}})
             raise
         self.__upsert_series(flat_series)
 
-    def __update_instrument(self, instrument, main_ref, merge_props_mode):
+    def __update_instrument(self, instrument, main_ref, merge_props_mode, now):
         instrument_id = main_ref['instr_id']
         current_props = self.db[self.paths_col].find_one({'_id': instrument_id})
         if current_props is None:
@@ -284,4 +296,23 @@ class SignalDb:
         if updated:
             self.db[self.paths_col].replace_one({'_id': current_props['_id']}, current_props)
         self.__upsert_series(flat_series)
+
+    @staticmethod
+    def __prepare_refs(tickers):
+        props_id = ObjectId()
+        series_id = ObjectId()
+        scenarios_id = ObjectId()
+        instr_id = ObjectId()
+
+        refs = []
+        for ticker in tickers:
+            refs.append(dict(_id=ObjectId(),
+                             source=ticker[0],
+                             ticker=ticker[1],
+                             valid_until=datetime.datetime.max,
+                             instr_id=instr_id,
+                             props=props_id,
+                             series=series_id,
+                             scenarios=scenarios_id))
+        return refs
 
