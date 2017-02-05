@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import pymongo
+from bson.objectid import ObjectId
 
 
 def str_to_datetime(s):
@@ -36,6 +37,8 @@ class JSONEncoderExtension(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, datetime.datetime):
             return rfc3339.datetimetostr(obj)
+        if isinstance(obj, ObjectId):
+            return 'ObjectId(%s)' % str(obj)
         # Let the base class default method raise the TypeError
         return json.JSONEncoder.default(self, obj)
 

@@ -3,8 +3,6 @@
 import datetime
 import json
 import logging
-from pprint import pprint
-
 import click
 import signaldb
 
@@ -51,10 +49,33 @@ def upsert(input_files, merge_props_mode, host, port, user, pwd, db):
 @click.option('--user', default='', help='Specify mongodb user explicitly')
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly')
 @click.option('--db', default='market', help='Specify the database to connect to')
-def get_props(source, ticker, host, port, user, pwd, db):
+def get(source, ticker, host, port, user, pwd, db):
     conn = signaldb.get_db(host, port, user, pwd, db)
     signal_db = signaldb.SignalDb(conn)
-    pprint(signal_db.get(source, ticker))
+    instrument = signal_db.get(source, ticker)
+    if instrument is None:
+        return
+    click.echo(json.dumps(instrument, indent=4, sort_keys=True, cls=signaldb.JSONEncoderExtension))
+
+
+@cli.command('list')
+@click.argument('source', nargs=-1)
+@click.option('--host', default='', help='Specify mongodb host explicitly')
+@click.option('--port', default='', help='Specify mongodb port explicitly')
+@click.option('--user', default='', help='Specify mongodb user explicitly')
+@click.option('--pwd', default='', help='Specify mongodb credentials explicitly')
+@click.option('--db', default='market', help='Specify the database to connect to')
+def list_tickers(source, host, port, user, pwd, db):
+    conn = signaldb.get_db(host, port, user, pwd, db)
+    signal_db = signaldb.SignalDb(conn)
+    if len(source) == 0:
+        ticker_list = signal_db.list_tickers()
+    if len(source) == 1:
+        ticker_list = signal_db.list_tickers(source[0])
+    if len(source) > 1:
+        return
+    for ticker in ticker_list:
+        click.echo('%s %s' % ticker)
 
 
 @cli.command('find')
@@ -72,7 +93,8 @@ def find(filter_doc, host, port, user, pwd, db):
         return
     conn = signaldb.get_db(host, port, user, pwd, db)
     signal_db = signaldb.SignalDb(conn)
-    pprint(signal_db.find_instruments(filter_doc))
+    instruments = signal_db.find_instruments(filter_doc)
+    click.echo(json.dumps(instruments, indent=4, sort_keys=True, cls=signaldb.JSONEncoderExtension))
 
 
 @cli.command('exportba')
