@@ -42,8 +42,12 @@ class SignalDb:
             self.db[self.refs_col].create_index(
                 [('source', pymongo.ASCENDING), ('ticker', pymongo.ASCENDING)], unique=True, name='source_ticker_index')
             self.db[self.refs_col].create_index('instr_id', unique=False, name='instr_id_index')
+            self.db[self.paths_col].create_index(
+                [('k', pymongo.ASCENDING), ('r', pymongo.ASCENDING)],
+                unique=True, name='k_r_index')
             self.db[self.sheets_col].create_index(
-                [('k', pymongo.ASCENDING), ('t', pymongo.ASCENDING)], unique=True, name='k_t_index')
+                [('k', pymongo.ASCENDING), ('t', pymongo.ASCENDING), ('r', pymongo.ASCENDING)],
+                unique=True, name='k_t_r_index')
         except pymongo.errors.OperationFailure:
             self.logger.error('Cannot access the db')
             raise ConnectionAbortedError('Cannot access the db')
@@ -135,30 +139,38 @@ class SignalDb:
 
     def get(self, source: str, ticker: str):
         """Find a single instrument and return it in the standard form"""
-        ticker_record = self.db[self.refs_col].find_one({'source': source, 'ticker': ticker})
+        now = datetime.datetime.utcnow()  # TODO replace with with server time
+        now = now.replace(microsecond=0)
+        filter_doc = {'source': source, 'ticker': ticker, 'valid_until': {'$gte': now}}
+        ticker_record = self.db[self.refs_col].find_one(filter_doc)
         if ticker_record is None:
-            self.logger.info("Ticker (%s,%s) not found. " % (source, ticker))
+            self.logger.info('Ticker (%s,%s) not found.' % (source, ticker))
             return None
-        properties = self.db[self.paths_col].find_one({'_id': ticker_record['instr_id']})
-        if properties is None:
+        instrument = dict(tickers=[[source, ticker], ])
+        properties_record = self.db[self.paths_col].find_one({'k': ticker_record['props']},
+                                                             sort=[('r', pymongo.DESCENDING)])
+        if properties_record is None:
             self.logger.warning("The ticker (%s,%s) points to a non-existent properties document." % (source, ticker))
-            return None
-        instrument = dict(properties=properties, tickers=[[source, ticker], ])
-        if 'series' not in properties.keys():
+            instrument['properties'] = {}
+        else:
+            instrument['properties'] = properties_record['v']
+        series_refs = self.db[self.paths_col].find_one({'k': ticker_record['series']},
+                                                       sort=[('r', pymongo.DESCENDING)])
+        if 'series_refs' is None:
             self.logger.warning('The instrument (%s,%s) has no series attached.' % (source, ticker))
             instrument['series'] = {}
             return instrument
-        instrument['series'] = properties.pop('series')
-        if len(instrument['series']) == 0:
+        if len(series_refs['v']) == 0:
             self.logger.warning('Instrument (%s,%s) has no series attached.' % (source, ticker))
             return instrument
+
         series = {}
-        for ref in instrument['series'].items():
-            observations = []
-            cursor = self.db[self.sheets_col].find({'k': ref[1]})
-            for item in cursor:
-                observations.append([item['t'], item['v']])
-            series[ref[0]] = observations
+        for ref in series_refs['v'].items():
+            observations = self.__get_series(ref[1])
+            if len(observations) > 0:
+                series[ref[0]] = observations
+            else:
+                self.logger.warning('Series %s for the instrument (%s,%s) is empty.' % (ref[0], source, ticker))
         instrument['series'] = series
         return instrument
 
@@ -171,10 +183,10 @@ class SignalDb:
             self.logger.error('%s must be a str' % label_name)
             return False
         if len(label) > max_len:
-            self.logger.error('%s str max length exceeded')
+            self.logger.error('%s str max length exceeded' % label_name)
             return False
         if len(label) == 0:
-            self.logger.error('Given %s is empty')
+            self.logger.error('Given %s is empty' % label_name)
         return True
 
     def upsert(self, instruments, merge_props_mode='append'):
@@ -199,7 +211,8 @@ class SignalDb:
 
     def __upsert_instrument(self, instrument, merge_props_mode):
         """Update or insert an instrument"""
-        now = datetime.datetime.now()  # TODO replace with with server time
+        now = datetime.datetime.utcnow()  # TODO replace with with server time
+        now = now.replace(microsecond=0)
         main_ref = self.__find_one_ref(instrument['tickers'], now)
 
         if main_ref is None:
@@ -208,31 +221,13 @@ class SignalDb:
             self.__update_instrument(instrument, main_ref, merge_props_mode, now)
 
         # Remove helper fields added to the input instrument object
-        instrument['properties'].pop('series', None)
-        instrument['properties'].pop('_id', None)
+#        instrument['properties'].pop('series', None)
+#        instrument['properties'].pop('_id', None)
         return True
-
-    def __upsert_series(self, series):
-        """Insert a list of observations to the series col. Updates existing observations."""
-        if len(series) == 0:
-            return
-        try:
-            self.db[self.sheets_col].insert_many(series)
-        except pymongo.errors.BulkWriteError:
-            for sample in series:
-                sample.pop('_id', None)
-                self.db[self.sheets_col].find_one_and_replace(
-                    {'k': sample['k'], 't': sample['t']}, sample, upsert=True)
-
-    def list_dangling_series(self):
-        pass
-
-    def remove_dangling_series(self):
-        pass
 
     def __find_one_ref(self, tickers, now):
         for ticker in tickers:
-            filter_doc = {'source': ticker[0], 'ticker': ticker[1], 'valid_until': {'$gt': now}}
+            filter_doc = {'source': ticker[0], 'ticker': ticker[1], 'valid_until': {'$gte': now}}
             ticker_record = self.db[self.refs_col].find_one(filter_doc)
             if ticker_record is not None:
                 return ticker_record
@@ -246,24 +241,18 @@ class SignalDb:
         props_id = refs_to_insert[0]['props']
         series_id = refs_to_insert[0]['series']
         scenarios_id = refs_to_insert[0]['scenarios']
-        instr_id = refs_to_insert[0]['instr_id']
 
         props_obj = {'_id': ObjectId(), 'k': props_id, 'r': now, 'v': instrument['properties']}
         series_refs = {key: ObjectId() for key in instrument['series'].keys()}
         series_obj = {'_id': ObjectId(), 'k': series_id, 'r': now, 'v': series_refs}
-
-        instrument['properties']['_id'] = instr_id
-        instrument['properties']['series'] = series_refs
 
         flat_series = []
         for key in series_refs:
             series_data = instrument['series'][key]
             for sample in series_data:
                 flat_series.append({'k': series_refs[key], 'r': now, 't': sample[0], 'v': sample[1]})
-
         try:
             self.db[self.refs_col].insert(refs_to_insert)
-            self.db[self.paths_col].insert_one(instrument['properties'])  # TODO delete me
             self.db[self.paths_col].insert_one(props_obj)
             self.db[self.paths_col].insert_one(series_obj)
         except KeyboardInterrupt:
@@ -273,40 +262,60 @@ class SignalDb:
         self.__upsert_series(flat_series)
 
     def __update_instrument(self, instrument, main_ref, merge_props_mode, now):
-        instrument_id = main_ref['instr_id']
-        current_props = self.db[self.paths_col].find_one({'_id': instrument_id})
-        if current_props is None:
-            self.logger.warning('Repair the dangling ticker (%s,%s)' %
-                                (main_ref['source'], main_ref['ticker']))
-            self.db[self.refs_col].delete_one(main_ref)
-            return self.__upsert_instrument(instrument, merge_props_mode)
-        updated = merge_props(current_props, instrument['properties'], merge_props_mode)
+        props = self.db[self.paths_col].find_one({'k': main_ref['props']}, sort=[('r', pymongo.DESCENDING)])
+        if props is None:
+            props = dict(k=main_ref['props'], r=now, v=instrument['properties'])
+            update_props = True
+        else:
+            update_props = merge_props(props['v'], instrument['properties'], merge_props_mode)
+
+        series_refs = self.db[self.paths_col].find_one({'k': main_ref['series']}, sort=[('r', pymongo.DESCENDING)])
+        update_series_refs = False
+        if series_refs is None:
+            update_series_refs = True
+            series_refs = {'_id': ObjectId(), 'k': main_ref['series'], 'r': now, 'v': {}}
 
         flat_series = []
         for key in instrument['series'].keys():
-            series = instrument['series'][key]
-            series_id = ObjectId()
-            if key not in current_props['series'].keys():
-                updated = True
-                current_props['series'][key] = series_id
+            series_data = instrument['series'][key]
+            series_id_ = ObjectId()
+            if key not in series_refs['v'].keys():
+                update_series_refs = True
+                series_refs['v'][key] = series_id_
+                for sample in series_data:
+                    flat_series.append({'k': series_id_, 'r': now, 't': sample[0], 'v': sample[1]})
             else:
-                series_id = current_props['series'][key]
-            for sample in series:
-                flat_series.append({'k': series_id, 't': sample[0], 'v': sample[1]})
-        for key in set(current_props['series'].keys()) - set(instrument['series'].keys()):
-            removed_series_id = current_props['series'].pop(key, None)
-            self.db[self.sheets_col].delete_many({'_id': removed_series_id})
-            updated = True
-        if updated:
-            self.db[self.paths_col].replace_one({'_id': current_props['_id']}, current_props)
+                current_series_data = self.__get_series(series_refs['v'][key])
+                merged_series = self.__merge_series(current_series_data, instrument['series'][key])
+                for sample in merged_series:
+                    flat_series.append({'k': series_id_, 'r': now, 't': sample[0], 'v': sample[1]})
+        for key in set(series_refs['v'].keys()) - set(instrument['series'].keys()):
+            pass  # TODO add removing series
+        if update_props:
+            props['r'] = now
+            self.db[self.paths_col].replace_one(dict(k=props['k'], r=now), props, upsert=True)
+        if update_series_refs:
+            series_refs['r'] = now
+            self.db[self.paths_col].replace_one(dict(k=series_refs['k'], r=now), series_refs, upsert=True)
         self.__upsert_series(flat_series)
+
+    def __upsert_series(self, series):
+        """Insert a list of observations to the series col. Updates existing observations."""
+        if len(series) == 0:
+            return
+        try:
+            self.db[self.sheets_col].insert_many(series)
+        except pymongo.errors.BulkWriteError:
+            for sample in series:
+                sample.pop('_id', None)
+                self.db[self.sheets_col].find_one_and_replace(
+                    {'k': sample['k'], 't': sample['t']}, sample, upsert=True)
 
     @staticmethod
     def __prepare_refs(tickers):
         props_id = ObjectId()
         series_id = ObjectId()
         scenarios_id = ObjectId()
-        instr_id = ObjectId()
 
         refs = []
         for ticker in tickers:
@@ -314,9 +323,29 @@ class SignalDb:
                              source=ticker[0],
                              ticker=ticker[1],
                              valid_until=datetime.datetime.max,
-                             instr_id=instr_id,
                              props=props_id,
                              series=series_id,
                              scenarios=scenarios_id))
         return refs
+
+    def __get_series(self, series_key):
+        series = []
+        cursor = self.db[self.sheets_col].find({'k': series_key})
+#        pipeline = []
+#        pipeline.append({'$group': {'_id': {'t'}}})
+#        cursor = self.db[self.sheets_col].aggregate(pipeline=pipeline)
+        for item in cursor:
+            series.append([item['t'], item['v']])
+        return series
+
+    def __merge_series(self, old_series, new_series):
+        old_series_dict = dict(old_series)
+        new_series_dict = dict(new_series)
+        series = []
+        for t in new_series_dict.keys():
+            if t in old_series_dict.keys():
+                if old_series_dict[t] == new_series_dict[t]:
+                    continue
+            series.append([t, new_series_dict[t]])
+        return series
 
