@@ -194,8 +194,7 @@ class SignalDb:
 
     def __upsert_instrument(self, instrument, props_merge_mode, series_merge_mode):
         """Update or insert an instrument"""
-        now = datetime.datetime.utcnow().replace(tzinfo=None)  # TODO replace with with server time
-#        now = now.replace(microsecond=0)
+        now = self.__get_now()
         main_ref = self.__find_one_ref(instrument['tickers'], now)
 
         if main_ref is None:
@@ -217,6 +216,7 @@ class SignalDb:
         return None
 
     def __insert_instrument(self, instrument, now):
+        """Insert a new instrument into the db"""
         first_ticker = instrument['tickers'][0]
         self.logger.debug("Add new instrument with ticker (%s,%s)" % (first_ticker[0], first_ticker[1]))
 
@@ -246,6 +246,7 @@ class SignalDb:
         self.__upsert_series(flat_series)
 
     def __update_instrument(self, instrument, main_ref, props_merge_mode, series_merge_mode, now):
+        """Merge the provided instrument with the data from the db"""
         props = self.db[self.paths_col].find_one({'k': main_ref['props']}, sort=[('r', pymongo.DESCENDING)])
         if props is None:
             props = dict(k=main_ref['props'], r=now, v=instrument['properties'])
@@ -265,18 +266,17 @@ class SignalDb:
         flat_series = []
         for key in instrument['series'].keys():
             series_data = instrument['series'][key]
-            series_id_ = ObjectId()
             if key not in series_refs['v'].keys():
                 update_series_refs = True
-                series_refs['v'][key] = series_id_
+                series_refs['v'][key] = ObjectId()
                 for sample in series_data:
-                    flat_series.append({'k': series_id_, 'r': now,
+                    flat_series.append({'k': series_refs['v'][key], 'r': now,
                                         't': sample[0].replace(microsecond=0), 'v': sample[1]})
             else:
                 current_series_data = self.__get_series(series_refs['v'][key])
-                merged_series = self.__merge_series(current_series_data, instrument['series'][key])
+                merged_series = type(self).__merge_series(current_series_data, instrument['series'][key])
                 for sample in merged_series:
-                    flat_series.append({'k': series_id_, 'r': now,
+                    flat_series.append({'k': series_refs['v'][key], 'r': now,
                                         't': sample[0].replace(microsecond=0), 'v': sample[1]})
         if series_merge_mode == 'replace':
             for key in set(series_refs['v'].keys()) - set(instrument['series'].keys()):
@@ -321,15 +321,22 @@ class SignalDb:
 
     def __get_series(self, series_key):
         series = []
+        series_aggr = []
+        pipeline = list()
+        pipeline.append({'$match': {'k': series_key}})
+        pipeline.append({'$sort': {'r': pymongo.ASCENDING}})
+        pipeline.append({'$group': {'_id': '$t', 't': {'$last': '$t'}, 'v': {'$last': '$v'}}})
+        pipeline.append({'$sort': {'t': pymongo.ASCENDING}})
         cursor = self.db[self.sheets_col].find({'k': series_key})
-#        pipeline = []
-#        pipeline.append({'$group': {'_id': {'t'}}})
-#        cursor = self.db[self.sheets_col].aggregate(pipeline=pipeline)
+        cursor_aggr = self.db[self.sheets_col].aggregate(pipeline=pipeline)
+        for item in cursor_aggr:
+            series_aggr.append([item['t'], item['v']])
         for item in cursor:
             series.append([item['t'], item['v']])
-        return series
+        return series_aggr
 
-    def __merge_series(self, old_series, new_series):
+    @staticmethod
+    def __merge_series(old_series, new_series):
         old_series_dict = dict(old_series)
         new_series_dict = dict(new_series)
         series = []
@@ -346,6 +353,11 @@ class SignalDb:
         for key in list(obj.keys()):
             if key not in ['k', 'r', 'v']:
                 obj.pop(key, None)
+
+    def __get_now(self):
+        now = datetime.datetime.utcnow().replace(tzinfo=None)
+        self.logger.debug('Now time is %s.' % str(now))
+        return now
 
 
 def merge_props(old_props: dict, new_props: dict, merge_mode: str):

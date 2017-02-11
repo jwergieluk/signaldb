@@ -62,7 +62,7 @@ class SignalDbTest(unittest.TestCase):
 
     def test_upsert_unsupported_merge_mode(self):
         instruments = InstrumentFaker.get(1)
-        self.assertFalse(self.db.upsert(instruments, merge_props_mode='unsupported'))
+        self.assertFalse(self.db.upsert(instruments, props_merge_mode='unsupported'))
 
     def test_upsert_props_append(self):
         """Test the append mode for updating properties"""
@@ -106,15 +106,24 @@ class SignalDbTest(unittest.TestCase):
 
         series = instruments[0]['series']['new_series']
         for i, sample in enumerate(series):
-            series[i] = [sample[0], random.normalvariate(0, 1)]
+            series[i] = [sample[0], 999.9]
         self.assertTrue(self.db.upsert(instruments))
         for instrument in instruments:
             self.compare_instrument_with_db(instrument)
 
         for instrument in instruments:
             instrument['series'].pop('new_series', None)
-        self.assertTrue(self.db.upsert(instruments))
+        self.assertTrue(self.db.upsert(instruments, series_merge_mode='replace'))
         for instrument in instruments:
+            self.compare_instrument_with_db(instrument)
+
+        for instrument in instruments:
+            instrument['series']['new_series_2'] = InstrumentFaker.get_series()
+        instruments_snapshot = copy.deepcopy(instruments)
+        for instrument in instruments:
+            instrument['series'].pop('price', None)
+        self.assertTrue(self.db.upsert(instruments, series_merge_mode='append'))
+        for instrument in instruments_snapshot:
             self.compare_instrument_with_db(instrument)
 
     def test_upsert_and_check(self):
