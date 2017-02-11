@@ -82,10 +82,25 @@ class SignalDb:
 
     def delete(self, source: str, ticker: str):
         """Delete an instrument"""
-        pass
+        if not self.__validate_source_ticker(source, ticker):
+            return False
+        now = self.get_utc_now()
+        filter_doc = {'source': source, 'ticker': ticker, 'valid_until': {'$gte': now}}
+        ticker_record = self.db[self.refs_col].find_one(filter_doc)
+        if ticker_record is None:
+            self.logger.info('Ticker (%s,%s) not found.' % (source, ticker))
+            return False
+        ticker_record['valid_until'] = now
+        self.db[self.refs_col].replace_one({'_id': ticker_record['_id']}, ticker_record, upsert=False)
+        return True
 
-    def list_tickers(self, source=''):
+    def list_tickers(self, source='', now=None):
         """Return a list of all available tickers matching a given source"""
+        if now is None:
+            now = self.get_utc_now()
+        if type(now) is not datetime.datetime:
+            self.logger.error('Wrong snapshot time provided.')
+            return None
         if type(source) is not str:
             self.logger.error('Source must be a string')
             return None
@@ -102,7 +117,7 @@ class SignalDb:
         ticker_list = []
         for label in cursor:
             if 'source' not in label.keys() or 'ticker' not in label.keys():
-                self.logger.error('Erroneous ticker document found. Check the db!')
+                self.logger.error('Erroneous ticker document %s found. Check the db!' % label['_id'])
                 return None
             ticker_list.append((label['source'], label['ticker']))
         return ticker_list
@@ -117,24 +132,28 @@ class SignalDb:
             instruments.append(instrument)
         return instruments
 
-    def get(self, source: str, ticker: str):
+    def get(self, source: str, ticker: str, now=None):
         """Find a single instrument and return it in the standard form"""
-        now = datetime.datetime.utcnow().replace(tzinfo=None)
-#        now = now.replace(microsecond=0)
-        filter_doc = {'source': source, 'ticker': ticker, 'valid_until': {'$gte': now}}
+        if now is None:
+            now = self.get_utc_now()
+        if type(now) is not datetime.datetime:
+            self.logger.error('Wrong snapshot time provided.')
+            return None
+        filter_doc = {'source': source, 'ticker': ticker,
+                      'valid_from': {'$lte': now}, 'valid_until': {'$gte': now}}
         ticker_record = self.db[self.refs_col].find_one(filter_doc)
         if ticker_record is None:
             self.logger.info('Ticker (%s,%s) not found.' % (source, ticker))
             return None
         instrument = dict(tickers=[[source, ticker], ])
-        properties_record = self.db[self.paths_col].find_one({'k': ticker_record['props']},
+        properties_record = self.db[self.paths_col].find_one({'k': ticker_record['props'], 'r': {'$lte': now}},
                                                              sort=[('r', pymongo.DESCENDING)])
         if properties_record is None:
             self.logger.warning("The ticker (%s,%s) points to a non-existent properties document." % (source, ticker))
             instrument['properties'] = {}
         else:
             instrument['properties'] = properties_record['v']
-        series_refs = self.db[self.paths_col].find_one({'k': ticker_record['series']},
+        series_refs = self.db[self.paths_col].find_one({'k': ticker_record['series'], 'r': {'$lte': now}},
                                                        sort=[('r', pymongo.DESCENDING)])
         if 'series_refs' is None:
             self.logger.warning('The instrument (%s,%s) has no series attached.' % (source, ticker))
@@ -146,7 +165,7 @@ class SignalDb:
 
         series = {}
         for ref in series_refs['v'].items():
-            observations = self.__get_series(ref[1])
+            observations = self.__get_series(ref[1], now)
             if len(observations) > 0:
                 series[ref[0]] = observations
             else:
@@ -194,22 +213,19 @@ class SignalDb:
 
     def __upsert_instrument(self, instrument, props_merge_mode, series_merge_mode):
         """Update or insert an instrument"""
-        now = self.__get_now()
+        now = type(self).get_utc_now()
         main_ref = self.__find_one_ref(instrument['tickers'], now)
 
         if main_ref is None:
             self.__insert_instrument(instrument, now)
         else:
             self.__update_instrument(instrument, main_ref, props_merge_mode, series_merge_mode, now)
-
-        # Remove helper fields added to the input instrument object
-#        instrument['properties'].pop('series', None)
-#        instrument['properties'].pop('_id', None)
         return True
 
     def __find_one_ref(self, tickers, now):
         for ticker in tickers:
-            filter_doc = {'source': ticker[0], 'ticker': ticker[1], 'valid_until': {'$gte': now}}
+            filter_doc = {'source': ticker[0], 'ticker': ticker[1],
+                          'valid_from': {'$lte': now}, 'valid_until': {'$gte': now}}
             ticker_record = self.db[self.refs_col].find_one(filter_doc)
             if ticker_record is not None:
                 return ticker_record
@@ -220,7 +236,7 @@ class SignalDb:
         first_ticker = instrument['tickers'][0]
         self.logger.debug("Add new instrument with ticker (%s,%s)" % (first_ticker[0], first_ticker[1]))
 
-        refs_to_insert = self.__prepare_refs(instrument['tickers'])
+        refs_to_insert = self.__prepare_refs(instrument['tickers'], now)
         props_id = refs_to_insert[0]['props']
         series_id = refs_to_insert[0]['series']
         scenarios_id = refs_to_insert[0]['scenarios']
@@ -234,7 +250,7 @@ class SignalDb:
             series_data = instrument['series'][key]
             for sample in series_data:
                 flat_series.append({'k': series_refs[key], 'r': now,
-                                    't': sample[0].replace(microsecond=0), 'v': sample[1]})
+                                    't': sample[0], 'v': sample[1]})
         try:
             self.db[self.refs_col].insert(refs_to_insert)
             self.db[self.paths_col].insert_one(props_obj)
@@ -271,13 +287,13 @@ class SignalDb:
                 series_refs['v'][key] = ObjectId()
                 for sample in series_data:
                     flat_series.append({'k': series_refs['v'][key], 'r': now,
-                                        't': sample[0].replace(microsecond=0), 'v': sample[1]})
+                                        't': sample[0], 'v': sample[1]})
             else:
-                current_series_data = self.__get_series(series_refs['v'][key])
+                current_series_data = self.__get_series(series_refs['v'][key], now)
                 merged_series = type(self).__merge_series(current_series_data, instrument['series'][key])
                 for sample in merged_series:
                     flat_series.append({'k': series_refs['v'][key], 'r': now,
-                                        't': sample[0].replace(microsecond=0), 'v': sample[1]})
+                                        't': sample[0], 'v': sample[1]})
         if series_merge_mode == 'replace':
             for key in set(series_refs['v'].keys()) - set(instrument['series'].keys()):
                 series_refs['v'].pop(key, None)
@@ -303,7 +319,7 @@ class SignalDb:
                     {'k': sample['k'], 't': sample['t']}, sample, upsert=True)
 
     @staticmethod
-    def __prepare_refs(tickers):
+    def __prepare_refs(tickers, now):
         props_id = ObjectId()
         series_id = ObjectId()
         scenarios_id = ObjectId()
@@ -313,17 +329,18 @@ class SignalDb:
             refs.append(dict(_id=ObjectId(),
                              source=ticker[0],
                              ticker=ticker[1],
+                             valid_from=now,
                              valid_until=datetime.datetime.max,
                              props=props_id,
                              series=series_id,
                              scenarios=scenarios_id))
         return refs
 
-    def __get_series(self, series_key):
+    def __get_series(self, series_key, now):
         series = []
         series_aggr = []
         pipeline = list()
-        pipeline.append({'$match': {'k': series_key}})
+        pipeline.append({'$match': {'k': series_key, 'r': {'$lte': now}}})
         pipeline.append({'$sort': {'r': pymongo.ASCENDING}})
         pipeline.append({'$group': {'_id': '$t', 't': {'$last': '$t'}, 'v': {'$last': '$v'}}})
         pipeline.append({'$sort': {'t': pymongo.ASCENDING}})
@@ -354,9 +371,9 @@ class SignalDb:
             if key not in ['k', 'r', 'v']:
                 obj.pop(key, None)
 
-    def __get_now(self):
+    @staticmethod
+    def get_utc_now():
         now = datetime.datetime.utcnow().replace(tzinfo=None)
-        self.logger.debug('Now time is %s.' % str(now))
         return now
 
 
@@ -384,4 +401,3 @@ def merge_props(old_props: dict, new_props: dict, merge_mode: str):
 def get_utc_datetime(d: datetime.datetime):
     utc_time_zone = pytz.timezone('UTC')
     return d.astimezone(utc_time_zone).replace(tzinfo=None)
-

@@ -32,6 +32,24 @@ class SignalDbTest(unittest.TestCase):
     def tearDown(self):
         super().tearDown()
 
+    def test_delete_ticker(self):
+        now0 = self.db.get_utc_now()
+        instruments = InstrumentFaker.get(self.instruments_no)
+        self.assertTrue(self.db.upsert(instruments))
+
+        self.assertFalse(self.db.delete('Nonexistent-source', 'Nonexistent-ticker'))
+        self.assertFalse(self.db.delete('', 'Nonexistent-ticker'))
+        self.assertFalse(self.db.delete('Nonexistent-source', ''))
+        self.assertFalse(self.db.delete(0, 0))
+
+        now1 = self.db.get_utc_now()
+        source, ticker = instruments[0]['tickers'][0]
+        self.assertTrue(self.db.delete(source, ticker))
+
+        self.assertIsNone(self.db.get(source, ticker))
+        self.assertIsNone(self.db.get(source, ticker, now0))
+        self.assertIsNotNone(self.db.get(source, ticker, now1))
+
     def test_list_tickers(self):
         self.db.purge_db()
         instruments = InstrumentFaker.get(self.instruments_no)
