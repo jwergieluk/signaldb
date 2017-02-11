@@ -1,30 +1,10 @@
 import datetime
+import pytz
 import logging
 import pymongo
 import pymongo.errors
 import signaldb
 from bson.objectid import ObjectId
-
-
-def merge_props(current_props: dict, new_props: dict, merge_props_mode: str):
-    """Add new properties to a given properties document."""
-    assert merge_props_mode in ['append', 'replace']
-    current_props_modified = False
-    if merge_props_mode == 'append':
-        for key in new_props:
-            if key not in current_props.keys():
-                current_props[key] = new_props[key]
-                current_props_modified = True
-    if merge_props_mode == 'replace':
-        for key in new_props.keys():
-            current_props[key] = new_props[key]
-            current_props_modified = True
-        for key in set(current_props.keys()) - set(new_props.keys()):
-            if key in ['series', '_id']:
-                continue
-            current_props.pop(key, None)
-            current_props_modified = True
-    return current_props_modified
 
 
 class SignalDb:
@@ -54,7 +34,7 @@ class SignalDb:
 
     def purge_db(self):
         """Remove all data from the database."""
-        self.logger.debug('Removing all data from db.')
+        self.logger.debug('Removing all data from the db.')
         self.db[self.refs_col].delete_many({})
         self.db[self.sheets_col].delete_many({})
         self.db[self.paths_col].delete_many({})
@@ -139,8 +119,8 @@ class SignalDb:
 
     def get(self, source: str, ticker: str):
         """Find a single instrument and return it in the standard form"""
-        now = datetime.datetime.utcnow()  # TODO replace with with server time
-        now = now.replace(microsecond=0)
+        now = datetime.datetime.utcnow().replace(tzinfo=None)
+#        now = now.replace(microsecond=0)
         filter_doc = {'source': source, 'ticker': ticker, 'valid_until': {'$gte': now}}
         ticker_record = self.db[self.refs_col].find_one(filter_doc)
         if ticker_record is None:
@@ -189,10 +169,13 @@ class SignalDb:
             self.logger.error('Given %s is empty' % label_name)
         return True
 
-    def upsert(self, instruments, merge_props_mode='append'):
+    def upsert(self, instruments, props_merge_mode='append', series_merge_mode='append'):
         """Update or insert a list of instruments."""
-        if merge_props_mode not in ['append', 'replace']:
-            self.logger.error('Requested merge mode is not supported yet.')
+        if props_merge_mode not in ['append', 'replace']:
+            self.logger.error('Requested properties merge mode is not supported yet.')
+            return False
+        if series_merge_mode not in ['append', 'replace']:
+            self.logger.error('Requested series merge mode is not supported yet.')
             return False
         if type(instruments) not in [list, tuple, dict]:
             self.logger.error("upsert: supplied instrument data is not dict, list, or tuple")
@@ -206,19 +189,19 @@ class SignalDb:
                 self.logger.error("Supplied instrument has wrong type (index no %d; failed test %d)." %
                                   (i+1, check_result))
                 continue
-            self.__upsert_instrument(instrument, merge_props_mode)
+            self.__upsert_instrument(instrument, props_merge_mode, series_merge_mode)
         return True
 
-    def __upsert_instrument(self, instrument, merge_props_mode):
+    def __upsert_instrument(self, instrument, props_merge_mode, series_merge_mode):
         """Update or insert an instrument"""
-        now = datetime.datetime.utcnow()  # TODO replace with with server time
-        now = now.replace(microsecond=0)
+        now = datetime.datetime.utcnow().replace(tzinfo=None)  # TODO replace with with server time
+#        now = now.replace(microsecond=0)
         main_ref = self.__find_one_ref(instrument['tickers'], now)
 
         if main_ref is None:
             self.__insert_instrument(instrument, now)
         else:
-            self.__update_instrument(instrument, main_ref, merge_props_mode, now)
+            self.__update_instrument(instrument, main_ref, props_merge_mode, series_merge_mode, now)
 
         # Remove helper fields added to the input instrument object
 #        instrument['properties'].pop('series', None)
@@ -250,7 +233,8 @@ class SignalDb:
         for key in series_refs:
             series_data = instrument['series'][key]
             for sample in series_data:
-                flat_series.append({'k': series_refs[key], 'r': now, 't': sample[0], 'v': sample[1]})
+                flat_series.append({'k': series_refs[key], 'r': now,
+                                    't': sample[0].replace(microsecond=0), 'v': sample[1]})
         try:
             self.db[self.refs_col].insert(refs_to_insert)
             self.db[self.paths_col].insert_one(props_obj)
@@ -261,19 +245,22 @@ class SignalDb:
             raise
         self.__upsert_series(flat_series)
 
-    def __update_instrument(self, instrument, main_ref, merge_props_mode, now):
+    def __update_instrument(self, instrument, main_ref, props_merge_mode, series_merge_mode, now):
         props = self.db[self.paths_col].find_one({'k': main_ref['props']}, sort=[('r', pymongo.DESCENDING)])
         if props is None:
             props = dict(k=main_ref['props'], r=now, v=instrument['properties'])
             update_props = True
         else:
-            update_props = merge_props(props['v'], instrument['properties'], merge_props_mode)
+            update_props = merge_props(props['v'], instrument['properties'], props_merge_mode)
+        type(self).__clean_fields_path_obj(props)
 
         series_refs = self.db[self.paths_col].find_one({'k': main_ref['series']}, sort=[('r', pymongo.DESCENDING)])
         update_series_refs = False
         if series_refs is None:
             update_series_refs = True
             series_refs = {'_id': ObjectId(), 'k': main_ref['series'], 'r': now, 'v': {}}
+        else:
+            type(self).__clean_fields_path_obj(series_refs)
 
         flat_series = []
         for key in instrument['series'].keys():
@@ -283,14 +270,18 @@ class SignalDb:
                 update_series_refs = True
                 series_refs['v'][key] = series_id_
                 for sample in series_data:
-                    flat_series.append({'k': series_id_, 'r': now, 't': sample[0], 'v': sample[1]})
+                    flat_series.append({'k': series_id_, 'r': now,
+                                        't': sample[0].replace(microsecond=0), 'v': sample[1]})
             else:
                 current_series_data = self.__get_series(series_refs['v'][key])
                 merged_series = self.__merge_series(current_series_data, instrument['series'][key])
                 for sample in merged_series:
-                    flat_series.append({'k': series_id_, 'r': now, 't': sample[0], 'v': sample[1]})
-        for key in set(series_refs['v'].keys()) - set(instrument['series'].keys()):
-            pass  # TODO add removing series
+                    flat_series.append({'k': series_id_, 'r': now,
+                                        't': sample[0].replace(microsecond=0), 'v': sample[1]})
+        if series_merge_mode == 'replace':
+            for key in set(series_refs['v'].keys()) - set(instrument['series'].keys()):
+                series_refs['v'].pop(key, None)
+                update_series_refs = True
         if update_props:
             props['r'] = now
             self.db[self.paths_col].replace_one(dict(k=props['k'], r=now), props, upsert=True)
@@ -348,4 +339,37 @@ class SignalDb:
                     continue
             series.append([t, new_series_dict[t]])
         return series
+
+    @staticmethod
+    def __clean_fields_path_obj(obj: dict):
+        """Remove _id field and all fields not belonging to a path obj"""
+        for key in list(obj.keys()):
+            if key not in ['k', 'r', 'v']:
+                obj.pop(key, None)
+
+
+def merge_props(old_props: dict, new_props: dict, merge_mode: str):
+    """Add new properties to a given properties document."""
+    assert merge_mode in ['append', 'replace']
+    current_props_modified = False
+    if merge_mode == 'append':
+        for key in new_props:
+            if key not in old_props.keys():
+                old_props[key] = new_props[key]
+                current_props_modified = True
+    if merge_mode == 'replace':
+        for key in new_props.keys():
+            old_props[key] = new_props[key]
+            current_props_modified = True
+        for key in set(old_props.keys()) - set(new_props.keys()):
+            if key in ['series', '_id']:
+                continue
+            old_props.pop(key, None)
+            current_props_modified = True
+    return current_props_modified
+
+
+def get_utc_datetime(d: datetime.datetime):
+    utc_time_zone = pytz.timezone('UTC')
+    return d.astimezone(utc_time_zone).replace(tzinfo=None)
 
