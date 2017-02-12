@@ -35,9 +35,14 @@ class SignalDb:
     def purge_db(self):
         """Remove all data from the database."""
         self.logger.debug('Removing all data from the db.')
-        self.db[self.refs_col].delete_many({})
-        self.db[self.sheets_col].delete_many({})
-        self.db[self.paths_col].delete_many({})
+        if self.refs_col in self.db.collection_names():
+            self.db[self.refs_col].delete_many({})
+        if self.paths_col in self.db.collection_names():
+            self.db[self.paths_col].delete_many({})
+        if self.sheets_col in self.db.collection_names():
+            self.db[self.sheets_col].delete_many({})
+        if self.spaces_col in self.db.collection_names():
+            self.db[self.spaces_col].delete_many({})
 
     @staticmethod
     def check_instrument(instrument):
@@ -108,9 +113,10 @@ class SignalDb:
             self.logger.error('source str length exceeded')
             return None
         if len(source) == 0:
-            cursor = self.db[self.refs_col].find({})
+            cursor = self.db[self.refs_col].find({'valid_from': {'$lte': now}, 'valid_until': {'$gte': now}})
         else:
-            cursor = self.db[self.refs_col].find({'source': source})
+            cursor = self.db[self.refs_col].find({'source': source,
+                                                  'valid_from': {'$lte': now}, 'valid_until': {'$gte': now}})
         if cursor is None:
             self.logger.error('Error querying the db')
             return None

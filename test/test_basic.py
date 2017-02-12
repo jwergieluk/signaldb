@@ -8,7 +8,6 @@ import faker
 import logging
 import signaldb
 import copy
-from pprint import pprint
 
 
 class SignalDbTest(unittest.TestCase):
@@ -40,6 +39,7 @@ class SignalDbTest(unittest.TestCase):
         self.assertFalse(self.db.delete('Nonexistent-source', 'Nonexistent-ticker'))
         self.assertFalse(self.db.delete('', 'Nonexistent-ticker'))
         self.assertFalse(self.db.delete('Nonexistent-source', ''))
+        # noinspection PyTypeChecker
         self.assertFalse(self.db.delete(0, 0))
 
         now1 = self.db.get_utc_now()
@@ -52,6 +52,7 @@ class SignalDbTest(unittest.TestCase):
 
     def test_list_tickers(self):
         self.db.purge_db()
+        now0 = self.db.get_utc_now()
         instruments = InstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
 
@@ -68,6 +69,8 @@ class SignalDbTest(unittest.TestCase):
         tickers_from_db = self.db.list_tickers('ISIN')
         self.assertIsInstance(tickers_from_db, list)
         self.assertSetEqual(set(tickers), set(tickers_from_db))
+        # Historical queries
+        self.assertListEqual(self.db.list_tickers(now=now0), [])
 
     def test_get_nonexistent(self):
         instruments = InstrumentFaker.get(self.instruments_no)
@@ -81,59 +84,73 @@ class SignalDbTest(unittest.TestCase):
     def test_upsert_unsupported_merge_mode(self):
         instruments = InstrumentFaker.get(1)
         self.assertFalse(self.db.upsert(instruments, props_merge_mode='unsupported'))
+        self.assertFalse(self.db.upsert(instruments, series_merge_mode='unsupported'))
 
     def test_upsert_props_append(self):
         """Test the append mode for updating properties"""
         instruments = InstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
+        now0 = self.db.get_utc_now()
+        instruments0 = copy.deepcopy(instruments)
 
         for instrument in instruments:
             instrument['properties']['extra_property'] = InstrumentFaker.fake.phone_number()
         self.assertTrue(self.db.upsert(instruments, 'append'))
-        for instrument in instruments:
-            self.compare_instrument_with_db(instrument)
+        self.compare_instruments_with_db(instruments)
+        now1 = self.db.get_utc_now()
+        instruments1 = copy.deepcopy(instruments)
 
         instruments_with_props_removed = copy.deepcopy(instruments)
         for instrument in instruments_with_props_removed:
             instrument['properties'].pop('company_name', None)
         self.assertTrue(self.db.upsert(instruments_with_props_removed, 'append'))
-        for instrument in instruments:
-            self.compare_instrument_with_db(instrument)
+        self.compare_instruments_with_db(instruments)
+        # History queries
+        self.compare_instruments_with_db(instruments0, now0)
+        self.compare_instruments_with_db(instruments1, now1)
 
     def test_upsert_props_replace(self):
         """Test the replace mode for updating properties"""
         instruments = InstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
+        now0 = self.db.get_utc_now()
+        instruments0 = copy.deepcopy(instruments)
+
         for instrument in instruments:
             instrument['properties']['extra_property'] = InstrumentFaker.fake.phone_number()
             instrument['properties'].pop('company_name', None)
         self.assertTrue(self.db.upsert(instruments, 'replace'))
-        for instrument in instruments:
-            self.compare_instrument_with_db(instrument)
+        self.compare_instruments_with_db(instruments)
+        self.compare_instruments_with_db(instruments0, now0)
 
     def test_upsert_update_series(self):
         """Test adding, modifying and removing series"""
         instruments = InstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
+        now0 = self.db.get_utc_now()
+        instruments0 = copy.deepcopy(instruments)
 
         for instrument in instruments:
             instrument['series']['new_series'] = InstrumentFaker.get_series()
         self.assertTrue(self.db.upsert(instruments))
-        for instrument in instruments:
-            self.compare_instrument_with_db(instrument)
+        self.compare_instruments_with_db(instruments)
+        now1 = self.db.get_utc_now()
+        instruments1 = copy.deepcopy(instruments)
 
         series = instruments[0]['series']['new_series']
         for i, sample in enumerate(series):
             series[i] = [sample[0], 999.9]
         self.assertTrue(self.db.upsert(instruments))
-        for instrument in instruments:
-            self.compare_instrument_with_db(instrument)
+        self.compare_instruments_with_db(instruments)
+        now2 = self.db.get_utc_now()
+        instruments2 = copy.deepcopy(instruments)
 
         for instrument in instruments:
             instrument['series'].pop('new_series', None)
         self.assertTrue(self.db.upsert(instruments, series_merge_mode='replace'))
-        for instrument in instruments:
-            self.compare_instrument_with_db(instrument)
+        self.compare_instruments_with_db(instruments)
+        now3 = self.db.get_utc_now()
+        instruments3 = copy.deepcopy(instruments)
 
         for instrument in instruments:
             instrument['series']['new_series_2'] = InstrumentFaker.get_series()
@@ -141,21 +158,26 @@ class SignalDbTest(unittest.TestCase):
         for instrument in instruments:
             instrument['series'].pop('price', None)
         self.assertTrue(self.db.upsert(instruments, series_merge_mode='append'))
-        for instrument in instruments_snapshot:
-            self.compare_instrument_with_db(instrument)
+        self.compare_instruments_with_db(instruments_snapshot)
+
+        self.compare_instruments_with_db(instruments0, now0)
+        self.compare_instruments_with_db(instruments1, now1)
+        self.compare_instruments_with_db(instruments2, now2)
 
     def test_upsert_and_check(self):
         """Insert a bunch of instruments, retrieve them back from the db and test if we've got the same data"""
         instruments = InstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
+        self.compare_instruments_with_db(instruments)
 
+    def compare_instruments_with_db(self, instruments: list, now=None):
         for instrument in instruments:
-            self.compare_instrument_with_db(instrument)
+            self.compare_instrument_with_db(instrument, now=now)
 
-    def compare_instrument_with_db(self, instrument):
+    def compare_instrument_with_db(self, instrument: dict, now=None):
         for ticker in instrument['tickers']:
             with self.subTest(context=ticker):
-                instrument_from_db = self.db.get(ticker[0], ticker[1])
+                instrument_from_db = self.db.get(ticker[0], ticker[1], now=now)
                 self.assertEqual(self.db.check_instrument(instrument_from_db), 0)
 
                 """Test properties"""
