@@ -101,10 +101,8 @@ class SignalDb:
 
     def list_tickers(self, source='', now=None):
         """Return a list of all available tickers matching a given source"""
+        now = self.set_now(now)
         if now is None:
-            now = self.get_utc_now()
-        if type(now) is not datetime.datetime:
-            self.logger.error('Wrong snapshot time provided.')
             return None
         if type(source) is not str:
             self.logger.error('Source must be a string')
@@ -128,8 +126,20 @@ class SignalDb:
             ticker_list.append((label['source'], label['ticker']))
         return ticker_list
 
-    def find_instruments(self, filter_doc):
-        cursor = self.db[self.paths_col].find(filter_doc, limit=10000)
+    def find_instruments(self, filter_doc: dict, now=None):
+        """Search for instruments based on properties"""
+        now = self.set_now(now)
+        if now is None:
+            return None
+        prop_filter = dict(r={'$lte': now})
+        for key in filter_doc.keys():
+            prop_filter['v.' + key] = filter_doc[key]
+        pipeline = list()
+        pipeline.append({'$match': prop_filter})
+        pipeline.append({'$sort': {'r': pymongo.ASCENDING}})
+        pipeline.append({'$group': {'_id': '$k', 'v': {'$last': '$v'}}})
+        cursor = self.db[self.paths_col].aggregate(pipeline=pipeline)
+
         instruments = []
         for instrument in cursor:
             ticker_cursor = self.db[self.refs_col].find({'instr_id': instrument['_id']})
@@ -140,10 +150,8 @@ class SignalDb:
 
     def get(self, source: str, ticker: str, now=None):
         """Find a single instrument and return it in the standard form"""
+        now = self.set_now(now)
         if now is None:
-            now = self.get_utc_now()
-        if type(now) is not datetime.datetime:
-            self.logger.error('Wrong snapshot time provided.')
             return None
         filter_doc = {'source': source, 'ticker': ticker,
                       'valid_from': {'$lte': now}, 'valid_until': {'$gte': now}}
@@ -343,19 +351,15 @@ class SignalDb:
         return refs
 
     def __get_series(self, series_key, now):
-        series = []
         series_aggr = []
         pipeline = list()
         pipeline.append({'$match': {'k': series_key, 'r': {'$lte': now}}})
         pipeline.append({'$sort': {'r': pymongo.ASCENDING}})
         pipeline.append({'$group': {'_id': '$t', 't': {'$last': '$t'}, 'v': {'$last': '$v'}}})
         pipeline.append({'$sort': {'t': pymongo.ASCENDING}})
-        cursor = self.db[self.sheets_col].find({'k': series_key})
         cursor_aggr = self.db[self.sheets_col].aggregate(pipeline=pipeline)
         for item in cursor_aggr:
             series_aggr.append([item['t'], item['v']])
-        for item in cursor:
-            series.append([item['t'], item['v']])
         return series_aggr
 
     @staticmethod
@@ -381,6 +385,13 @@ class SignalDb:
     def get_utc_now():
         now = datetime.datetime.utcnow().replace(tzinfo=None)
         return now
+
+    def set_now(self, now):
+        if now is None:
+            return self.get_utc_now()
+        if type(now) is not datetime.datetime:
+            self.logger.error('Wrong snapshot time provided.')
+            return None
 
 
 def merge_props(old_props: dict, new_props: dict, merge_mode: str):
