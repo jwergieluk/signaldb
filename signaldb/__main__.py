@@ -1,4 +1,3 @@
-import datetime
 import json
 import logging
 import click
@@ -66,11 +65,14 @@ def get(source, ticker, host, port, user, pwd, db):
 def list_tickers(source, host, port, user, pwd, db):
     conn = signaldb.get_db(host, port, user, pwd, db)
     signal_db = signaldb.SignalDb(conn)
+    ticker_list = []
     if len(source) == 0:
         ticker_list = signal_db.list_tickers()
     if len(source) == 1:
         ticker_list = signal_db.list_tickers(source[0])
     if len(source) > 1:
+        return
+    if ticker_list is None:
         return
     for ticker in ticker_list:
         click.echo('%s %s' % ticker)
@@ -93,39 +95,3 @@ def find(filter_doc, host, port, user, pwd, db):
     signal_db = signaldb.SignalDb(conn)
     instruments = signal_db.find_instruments(filter_doc)
     click.echo(json.dumps(instruments, indent=4, sort_keys=True, cls=signaldb.JSONEncoderExtension))
-
-
-@cli.command('exportba')
-@click.option('--host', default='', help='Specify mongodb host explicitly')
-@click.option('--port', default='', type=int, help='Specify mongodb port explicitly')
-@click.option('--user', default='', help='Specify mongodb user explicitly')
-@click.option('--pwd', default='', help='Specify mongodb credentials explicitly explicitly')
-@click.option('--db', default='market', help='Specify the database to connect to')
-@click.option('--day', type=int)
-def exportba(host, port, user, pwd, db, day):
-    eex = signaldb.get_db(host, port, user, pwd, db)
-    curves = eex['BidAskCurves'].find({'Day': day})
-    instr_dict = {}
-    for curve in curves:
-        ticker_name = 'spot-curve-%s-%s' % (curve['MarketAreaName'], curve['TimeStepID'])
-        ticker = ('epex-spot', ticker_name)
-
-        props = {'MarketAreaName': curve['MarketAreaName'], 'TimeStepID': curve['TimeStepID'],
-                 'category': 'epex-spot-curves'}
-        timestamp = str(curve['Day'])
-        timestamp = datetime.datetime.strptime(timestamp, "%Y%m%d")
-        timestamp.replace(hour=12, minute=0, second=0, microsecond=0)
-
-        if ticker not in instr_dict.keys():
-            series = {'PurchasePrice': [], 'PurchaseVolume': [], 'SellPrice': [], 'SellVolume': []}
-            instr_dict[ticker] = dict(properties=props, tickers=[ticker], series=series)
-
-        series = instr_dict[ticker]['series']
-        series['PurchasePrice'].append([timestamp, curve['PurchasePrice']])
-        series['PurchaseVolume'].append([timestamp, curve['PurchaseVolume']])
-        series['SellPrice'].append([timestamp, curve['SellPrice']])
-        series['SellVolume'].append([timestamp, curve['SellVolume']])
-
-    output_str = json.dumps(list(instr_dict.values()), cls=signaldb.JSONEncoderExtension)
-    print(output_str)
-
