@@ -2,6 +2,7 @@
 # import sys
 # sys.path.insert(0, os.path.abspath('..'))
 import datetime
+import time
 import random
 import unittest
 import faker
@@ -19,7 +20,7 @@ class SignalDbTest(unittest.TestCase):
         cls.db.purge_db()
         cls.logger = logging.getLogger('')
         cls.logger.addHandler(logging.NullHandler())
-        cls.instruments_no = 4
+        cls.instruments_no = 100
 
     @classmethod
     def tearDownClass(cls):
@@ -32,6 +33,7 @@ class SignalDbTest(unittest.TestCase):
         super().tearDown()
 
     def test_delete_ticker(self):
+        self.db.purge_db()
         now0 = self.db.get_utc_now()
         instruments = InstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
@@ -43,9 +45,11 @@ class SignalDbTest(unittest.TestCase):
         self.assertFalse(self.db.delete(0, 0))
 
         now1 = self.db.get_utc_now()
+        time.sleep(0.01)
         source, ticker = instruments[0]['tickers'][0]
         self.assertTrue(self.db.delete(source, ticker))
 
+        time.sleep(0.01)
         self.assertIsNone(self.db.get(source, ticker))
         self.assertIsNone(self.db.get(source, ticker, now0))
         self.assertIsNotNone(self.db.get(source, ticker, now1))
