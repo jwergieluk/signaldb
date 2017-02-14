@@ -66,6 +66,7 @@ def get(source, ticker, host, port, user, pwd, db):
 def list_tickers(source, host, port, user, pwd, db):
     conn = signaldb.get_db(host, port, user, pwd, db)
     signal_db = signaldb.SignalDb(conn)
+    ticker_list = []
     if len(source) == 0:
         ticker_list = signal_db.list_tickers()
     if len(source) == 1:
@@ -74,6 +75,19 @@ def list_tickers(source, host, port, user, pwd, db):
         return
     for ticker in ticker_list:
         click.echo('%s %s' % ticker)
+
+
+@cli.command('info')
+@click.option('--host', default='', help='Specify mongodb host explicitly')
+@click.option('--port', default='', help='Specify mongodb port explicitly')
+@click.option('--user', default='', help='Specify mongodb user explicitly')
+@click.option('--pwd', default='', help='Specify mongodb credentials explicitly')
+@click.option('--db', default='market', help='Specify the database to connect to')
+def list_tickers(host, port, user, pwd, db):
+    conn = signaldb.get_db(host, port, user, pwd, db)
+    signal_db = signaldb.SignalDb(conn)
+    doc_count = signal_db.count_items()
+    click.echo('Object count: %d refs, %d paths, %d sheets.' % doc_count)
 
 
 @cli.command('find')

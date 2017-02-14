@@ -44,6 +44,10 @@ class SignalDb:
         if self.spaces_col in self.db.collection_names():
             self.db[self.spaces_col].delete_many({})
 
+    def count_items(self):
+        """Return a triple giving the document count in each collection"""
+        return self.db[self.refs_col].count(), self.db[self.paths_col].count(), self.db[self.sheets_col].count()
+
     @staticmethod
     def check_instrument(instrument):
         """Check if an instrument object has a valid type."""
@@ -128,7 +132,8 @@ class SignalDb:
             ticker_list.append((label['source'], label['ticker']))
         return ticker_list
 
-    def find_instruments(self, filter_doc):
+    def __find_instruments(self, filter_doc):
+        # TODO update this!
         cursor = self.db[self.paths_col].find(filter_doc, limit=10000)
         instruments = []
         for instrument in cursor:
@@ -317,12 +322,18 @@ class SignalDb:
         if len(series) == 0:
             return
         try:
-            self.db[self.sheets_col].insert_many(series)
+            sheets_bulk_handle = self.db[self.sheets_col].initialize_unordered_bulk_op()
+            for item in series:
+                sheets_bulk_handle.insert(item)
+            sheets_bulk_handle.execute()
+#            self.db[self.sheets_col].insert_many(series)
         except pymongo.errors.BulkWriteError:
-            for sample in series:
-                sample.pop('_id', None)
-                self.db[self.sheets_col].find_one_and_replace(
-                    {'k': sample['k'], 't': sample['t']}, sample, upsert=True)
+            self.logger.error("Bulk write error.")
+            pass
+            # for sample in series:
+            #     sample.pop('_id', None)
+            #     self.db[self.sheets_col].find_one_and_replace(
+            #         {'k': sample['k'], 't': sample['t']}, sample, upsert=True)
 
     @staticmethod
     def __prepare_refs(tickers, now):
