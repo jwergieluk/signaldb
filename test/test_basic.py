@@ -2,6 +2,7 @@
 # import sys
 # sys.path.insert(0, os.path.abspath('..'))
 import datetime
+import time
 import random
 import unittest
 import faker
@@ -31,7 +32,21 @@ class SignalDbTest(unittest.TestCase):
     def tearDown(self):
         super().tearDown()
 
+    # def test_big_upsert(self):
+    #     InstrumentFaker.time_series_len = 5000
+    #     instruments = InstrumentFaker.get(30)
+    #     self.assertTrue(self.db.upsert(instruments))
+
+    def test_insert_idempotence(self):
+        self.db.purge_db()
+        instruments = InstrumentFaker.get(self.instruments_no)
+        self.assertTrue(self.db.upsert(instruments))
+        doc_count = self.db.count_items()
+        self.assertTrue(self.db.upsert(instruments))
+        self.assertEqual(doc_count, self.db.count_items())
+
     def test_delete_ticker(self):
+        self.db.purge_db()
         now0 = self.db.get_utc_now()
         instruments = InstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
@@ -43,9 +58,11 @@ class SignalDbTest(unittest.TestCase):
         self.assertFalse(self.db.delete(0, 0))
 
         now1 = self.db.get_utc_now()
+        time.sleep(0.01)
         source, ticker = instruments[0]['tickers'][0]
         self.assertTrue(self.db.delete(source, ticker))
 
+        time.sleep(0.01)
         self.assertIsNone(self.db.get(source, ticker))
         self.assertIsNone(self.db.get(source, ticker, now0))
         self.assertIsNotNone(self.db.get(source, ticker, now1))

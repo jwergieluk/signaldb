@@ -79,6 +79,19 @@ def list_tickers(source, host, port, user, pwd, db):
         click.echo('%s %s' % ticker)
 
 
+@cli.command('info')
+@click.option('--host', default='', help='Specify mongodb host explicitly')
+@click.option('--port', default='', help='Specify mongodb port explicitly')
+@click.option('--user', default='', help='Specify mongodb user explicitly')
+@click.option('--pwd', default='', help='Specify mongodb credentials explicitly')
+@click.option('--db', default='market', help='Specify the database to connect to')
+def list_tickers(host, port, user, pwd, db):
+    conn = signaldb.get_db(host, port, user, pwd, db)
+    signal_db = signaldb.SignalDb(conn)
+    doc_count = signal_db.count_items()
+    click.echo('Object count: %d refs, %d paths, %d sheets.' % doc_count)
+
+
 @cli.command('find')
 @click.argument('filter_doc', nargs=1)
 @click.option('--host', default='', help='Specify mongodb host explicitly')
