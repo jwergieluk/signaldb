@@ -20,7 +20,7 @@ class SignalDbTest(unittest.TestCase):
         cls.db.purge_db()
         cls.logger = logging.getLogger('')
         cls.logger.addHandler(logging.NullHandler())
-        cls.instruments_no = 15
+        cls.instruments_no = 10
 
     @classmethod
     def tearDownClass(cls):
@@ -32,10 +32,10 @@ class SignalDbTest(unittest.TestCase):
     def tearDown(self):
         super().tearDown()
 
-    def test_big_upsert(self):
-        InstrumentFaker.time_series_len = 7000
-        instruments = InstrumentFaker.get(20)
-        self.assertTrue(self.db.upsert(instruments))
+    # def test_big_upsert(self):
+    #     InstrumentFaker.time_series_len = 7000
+    #     instruments = InstrumentFaker.get(20)
+    #     self.assertTrue(self.db.upsert(instruments))
 
     def test_insert_idempotence(self):
         self.db.purge_db()
@@ -216,7 +216,7 @@ class SignalDbTest(unittest.TestCase):
 class InstrumentFaker:
     """Random financial instrument generator"""
     fake = faker.Faker()
-    time_series_len = 10
+    time_series_len = 365
 
     @classmethod
     def get(cls, n=1):
@@ -259,13 +259,9 @@ class InstrumentFaker:
 
     @classmethod
     def get_series(cls):
-        start_date = datetime.datetime.now().replace(year=2000)
-#        start_date = cls.fake.date_time_between(start_date="-10y", end_date="now", tzinfo=None)
-        series = [[start_date + datetime.timedelta(days=i), random.expovariate(1)]
+        start_date = datetime.datetime.utcnow().replace(year=2000)
+#        start_date = cls.fake.date_time_between(start_date="-1y", end_date="now", tzinfo=None)
+        series = [[signaldb.truncate_microseconds(start_date + datetime.timedelta(days=i)), random.expovariate(1)]
                   for i in range(cls.time_series_len)]
-        series = [x for x in series if x[0] < datetime.datetime.now()]
+        series = [x for x in series if x[0] < datetime.datetime.utcnow()]
         return series
-
-
-
-

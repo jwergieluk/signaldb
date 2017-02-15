@@ -393,7 +393,7 @@ class SignalDb:
     @staticmethod
     def get_utc_now():
         now = datetime.datetime.utcnow().replace(tzinfo=None)
-        return now
+        return now.replace(microsecond=(now.microsecond // 1000)*1000)
 
     def set_now(self, now):
         if now is None:

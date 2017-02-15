@@ -12,7 +12,8 @@ from bson.objectid import ObjectId
 def str_to_datetime(s):
     d = rfc3339.parse_datetime(s)
     utc_time_zone = pytz.timezone('UTC')
-    return d.astimezone(utc_time_zone).replace(tzinfo=None)
+    d = d.astimezone(utc_time_zone).replace(tzinfo=None)
+    return d.replace(microsecond=(d.microsecond // 1000)*1000)
 
 
 def recursive_str_to_datetime(obj):
@@ -31,6 +32,10 @@ def recursive_str_to_datetime(obj):
                     obj[key] = str_to_datetime(obj[key])
             else:
                 recursive_str_to_datetime(obj[key])
+
+
+def truncate_microseconds(d: datetime.datetime):
+    return d.replace(microsecond=(d.microsecond // 1000) * 1000)
 
 
 class JSONEncoderExtension(json.JSONEncoder):
