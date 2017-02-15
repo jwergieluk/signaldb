@@ -20,7 +20,7 @@ class SignalDbTest(unittest.TestCase):
         cls.db.purge_db()
         cls.logger = logging.getLogger('')
         cls.logger.addHandler(logging.NullHandler())
-        cls.instruments_no = 4
+        cls.instruments_no = 15
 
     @classmethod
     def tearDownClass(cls):
@@ -32,10 +32,10 @@ class SignalDbTest(unittest.TestCase):
     def tearDown(self):
         super().tearDown()
 
-    # def test_big_upsert(self):
-    #     InstrumentFaker.time_series_len = 5000
-    #     instruments = InstrumentFaker.get(30)
-    #     self.assertTrue(self.db.upsert(instruments))
+    def test_big_upsert(self):
+        InstrumentFaker.time_series_len = 7000
+        instruments = InstrumentFaker.get(20)
+        self.assertTrue(self.db.upsert(instruments))
 
     def test_insert_idempotence(self):
         self.db.purge_db()
@@ -259,7 +259,8 @@ class InstrumentFaker:
 
     @classmethod
     def get_series(cls):
-        start_date = cls.fake.date_time_between(start_date="-10y", end_date="now", tzinfo=None)
+        start_date = datetime.datetime.now().replace(year=2000)
+#        start_date = cls.fake.date_time_between(start_date="-10y", end_date="now", tzinfo=None)
         series = [[start_date + datetime.timedelta(days=i), random.expovariate(1)]
                   for i in range(cls.time_series_len)]
         series = [x for x in series if x[0] < datetime.datetime.now()]

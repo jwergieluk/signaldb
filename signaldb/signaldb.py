@@ -398,9 +398,10 @@ class SignalDb:
     def set_now(self, now):
         if now is None:
             return self.get_utc_now()
-        if type(now) is not datetime.datetime:
+        if not isinstance(now, datetime.datetime):
             self.logger.error('Wrong snapshot time provided.')
             return None
+        return now
 
 
 def merge_props(old_props: dict, new_props: dict, merge_mode: str):
