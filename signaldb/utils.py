@@ -2,6 +2,7 @@ import pytz
 import rfc3339
 import re
 import datetime
+import time
 import json
 import logging
 import os
@@ -60,6 +61,7 @@ def read_values_from_env(conf: dict):
 
 
 def get_db(host, port, user, pwd, db_name):
+    time_stamp = time.perf_counter()
     cred = {"sdb_host": "", "sdb_port": 27017, "sdb_user": "", "sdb_pwd": ""}
     read_values_from_env(cred)
 
@@ -81,4 +83,6 @@ def get_db(host, port, user, pwd, db_name):
     mongo_client = pymongo.MongoClient(cred["sdb_host"], cred["sdb_port"])
     db = mongo_client[db_name]
     db.authenticate(cred["sdb_user"], cred["sdb_pwd"], source='admin')
+    logging.getLogger().debug('Connection with %s:%s established in: %f' % (cred['sdb_host'], cred['sdb_port'],
+                                                                            time.perf_counter() - time_stamp))
     return db

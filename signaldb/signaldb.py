@@ -1,4 +1,5 @@
 import datetime
+import time
 import pytz
 import logging
 import pymongo
@@ -307,8 +308,13 @@ class SignalDb:
                     flat_series.append({'k': series_refs['v'][key], 'r': now,
                                         't': sample[0], 'v': sample[1]})
             else:
-                current_series_data = self.__get_series(series_refs['v'][key], now)
-                merged_series = type(self).__merge_series(current_series_data, instrument['series'][key])
+                lower_bound, upper_bound = get_series_time_bounds(instrument['series'][key])
+                db_lower_bound, db_upper_bound = self.__get_series_time_bounds(series_refs['v'][key], now)
+                if db_upper_bound < lower_bound or upper_bound < db_lower_bound:
+                    merged_series = instrument['series'][key]
+                else:
+                    current_series_data = self.__get_series(series_refs['v'][key], now, lower_bound, upper_bound, )
+                    merged_series = type(self).__merge_series(current_series_data, instrument['series'][key])
                 for sample in merged_series:
                     flat_series.append({'k': series_refs['v'][key], 'r': now,
                                         't': sample[0], 'v': sample[1]})
@@ -359,10 +365,11 @@ class SignalDb:
                              scenarios=scenarios_id))
         return refs
 
-    def __get_series(self, series_key, now):
+    def __get_series(self, series_key, now, lower_bound=datetime.datetime.min, upper_bound=datetime.datetime.max):
         series_aggr = []
         pipeline = list()
-        pipeline.append({'$match': {'k': series_key, 'r': {'$lte': now}}})
+        pipeline.append({'$match': {'k': series_key, 'r': {'$lte': now}, '$and': [{'t': {'$lte': upper_bound}},
+                                                                                  {'t': {'$gte': lower_bound}}]}})
         pipeline.append({'$sort': {'r': pymongo.ASCENDING}})
         pipeline.append({'$group': {'_id': '$t', 't': {'$last': '$t'}, 'v': {'$last': '$v'}}})
         pipeline.append({'$sort': {'t': pymongo.ASCENDING}})
@@ -370,6 +377,25 @@ class SignalDb:
         for item in cursor_aggr:
             series_aggr.append([item['t'], item['v']])
         return series_aggr
+
+    def __get_series_time_bounds(self, series_key, now):
+        """Return time bounds for a series"""
+        lower_bound = datetime.datetime.min
+        upper_bound = datetime.datetime.max
+        pipeline = list()
+        pipeline.append({'$match': {'k': series_key, 'r': {'$lte': now}}})
+        pipeline.append({'$sort': {'t': pymongo.ASCENDING}})
+        pipeline.append({'$limit': 1})
+        pipeline.append({'$project': {'t': 1}})
+
+        cursor = self.db[self.sheets_col].aggregate(pipeline=pipeline)
+        for item in cursor:
+            lower_bound = item['t']
+        pipeline[1] = {'$sort': {'t': pymongo.DESCENDING}}
+        cursor = self.db[self.sheets_col].aggregate(pipeline=pipeline)
+        for item in cursor:
+            upper_bound = item['t']
+        return lower_bound, upper_bound
 
     @staticmethod
     def __merge_series(old_series, new_series):
@@ -402,6 +428,13 @@ class SignalDb:
             self.logger.error('Wrong snapshot time provided.')
             return None
         return now
+
+
+def get_series_time_bounds(series: list):
+    if len(series) == 0:
+        return datetime.min, datetime.min
+    times = [sample[0] for sample in series]
+    return min(times), max(times)
 
 
 def merge_props(old_props: dict, new_props: dict, merge_mode: str):

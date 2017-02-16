@@ -2,11 +2,13 @@ import json
 import logging
 import click
 import signaldb
+import time
+
 
 root_logger = logging.getLogger('')
 root_logger.setLevel(logging.INFO)
 console = logging.StreamHandler()
-formatter = logging.Formatter('# %(asctime)s  %(levelname)s: %(name)s: %(message)s', datefmt='%Y%m%d %H:%M:%S')
+formatter = logging.Formatter('# %(asctime)s %(levelname)s: %(name)s: %(message)s', datefmt='%Y%m%d %H:%M:%S')
 console.setFormatter(formatter)
 root_logger.addHandler(console)
 
@@ -32,6 +34,7 @@ def upsert(input_files, props_merge_mode, series_merge_mode, host, port, user, p
         root_logger.setLevel(logging.DEBUG)
     conn = signaldb.get_db(host, port, user, pwd, db)
     signal_db = signaldb.SignalDb(conn)
+    time_stamps = [time.perf_counter(), ]
     for input_file in input_files:
         try:
             with open(input_file, 'r') as f:
@@ -41,6 +44,10 @@ def upsert(input_files, props_merge_mode, series_merge_mode, host, port, user, p
             continue
         logging.getLogger(__name__).debug('Processing file %s' % input_file)
         signal_db.upsert(instruments, props_merge_mode=props_merge_mode, series_merge_mode=series_merge_mode)
+
+        logging.getLogger(__name__).debug('Upserting %s took: %f' % (input_file, time.perf_counter() - time_stamps[-1]))
+        time_stamps.append(time.perf_counter())
+    logging.getLogger(__name__).debug('Total execution time : %f' % (time.perf_counter() - time_stamps[0]))
 
 
 @cli.command('get')
@@ -96,18 +103,6 @@ def list_tickers(host, port, user, pwd, db):
     click.echo('Object count: %d refs, %d paths, %d sheets.' % doc_count)
 
 
-@cli.command('test')
-@click.option('--host', default='', help='Specify mongodb host explicitly')
-@click.option('--port', default='', help='Specify mongodb port explicitly')
-@click.option('--user', default='', help='Specify mongodb user explicitly')
-@click.option('--pwd', default='', help='Specify mongodb credentials explicitly')
-@click.option('--db', default='market_test', help='Specify the database to connect to')
-def test(host, port, user, pwd, db):
-    InstrumentFaker.time_series_len = 7000
-    instruments = InstrumentFaker.get(20)
-    self.assertTrue(self.db.upsert(instruments))
-
-
 @cli.command('find')
 @click.argument('filter_doc', nargs=1)
 @click.option('--host', default='', help='Specify mongodb host explicitly')
@@ -125,3 +120,22 @@ def find(filter_doc, host, port, user, pwd, db):
     signal_db = signaldb.SignalDb(conn)
     instruments = signal_db.find_instruments(filter_doc)
     click.echo(json.dumps(instruments, indent=4, sort_keys=True, cls=signaldb.JSONEncoderExtension))
+
+
+@cli.command('test')
+@click.option('--host', default='', help='Specify mongodb host explicitly')
+@click.option('--port', default='', help='Specify mongodb port explicitly')
+@click.option('--user', default='', help='Specify mongodb user explicitly')
+@click.option('--pwd', default='', help='Specify mongodb credentials explicitly')
+@click.option('--db', default='market_test', help='Specify the database to connect to')
+def test(host, port, user, pwd, db):
+    root_logger.setLevel(logging.DEBUG)
+    conn = signaldb.get_db(host, port, user, pwd, db)
+    sdb = signaldb.SignalDb(conn)
+    sdb.purge_db()
+    signaldb.InstrumentFaker.time_series_len = 7000
+    instruments = signaldb.InstrumentFaker.get(20)
+    time_stamp = time.perf_counter()
+    sdb.upsert(instruments)
+    root_logger.debug('Total test time: %f' % (time.perf_counter() - time_stamp))
+

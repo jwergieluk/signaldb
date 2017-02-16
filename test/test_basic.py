@@ -1,14 +1,12 @@
 # import os
 # import sys
 # sys.path.insert(0, os.path.abspath('..'))
-import datetime
-import time
-import random
-import unittest
-import faker
-import logging
-import signaldb
 import copy
+import logging
+import time
+import unittest
+
+import signaldb
 
 
 class SignalDbTest(unittest.TestCase):
@@ -20,7 +18,7 @@ class SignalDbTest(unittest.TestCase):
         cls.db.purge_db()
         cls.logger = logging.getLogger('')
         cls.logger.addHandler(logging.NullHandler())
-        cls.instruments_no = 10
+        cls.instruments_no = 3
 
     @classmethod
     def tearDownClass(cls):
@@ -32,14 +30,9 @@ class SignalDbTest(unittest.TestCase):
     def tearDown(self):
         super().tearDown()
 
-    # def test_big_upsert(self):
-    #     InstrumentFaker.time_series_len = 7000
-    #     instruments = InstrumentFaker.get(20)
-    #     self.assertTrue(self.db.upsert(instruments))
-
     def test_insert_idempotence(self):
         self.db.purge_db()
-        instruments = InstrumentFaker.get(self.instruments_no)
+        instruments = signaldb.InstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
         doc_count = self.db.count_items()
         self.assertTrue(self.db.upsert(instruments))
@@ -48,7 +41,7 @@ class SignalDbTest(unittest.TestCase):
     def test_delete_ticker(self):
         self.db.purge_db()
         now0 = self.db.get_utc_now()
-        instruments = InstrumentFaker.get(self.instruments_no)
+        instruments = signaldb.InstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
 
         self.assertFalse(self.db.delete('Nonexistent-source', 'Nonexistent-ticker'))
@@ -70,7 +63,7 @@ class SignalDbTest(unittest.TestCase):
     def test_list_tickers(self):
         self.db.purge_db()
         now0 = self.db.get_utc_now()
-        instruments = InstrumentFaker.get(self.instruments_no)
+        instruments = signaldb.InstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
 
         # Check if erroneous queries return None
@@ -90,7 +83,7 @@ class SignalDbTest(unittest.TestCase):
         self.assertListEqual(self.db.list_tickers(now=now0), [])
 
     def test_get_nonexistent(self):
-        instruments = InstrumentFaker.get(self.instruments_no)
+        instruments = signaldb.InstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
 
         self.assertIsNone(self.db.get('', 'null_ticker'))
@@ -99,19 +92,19 @@ class SignalDbTest(unittest.TestCase):
         self.assertIsNone(self.db.get('my_source', 'null_ticker'))
 
     def test_upsert_unsupported_merge_mode(self):
-        instruments = InstrumentFaker.get(1)
+        instruments = signaldb.InstrumentFaker.get(1)
         self.assertFalse(self.db.upsert(instruments, props_merge_mode='unsupported'))
         self.assertFalse(self.db.upsert(instruments, series_merge_mode='unsupported'))
 
     def test_upsert_props_append(self):
         """Test the append mode for updating properties"""
-        instruments = InstrumentFaker.get(self.instruments_no)
+        instruments = signaldb.InstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
         now0 = self.db.get_utc_now()
         instruments0 = copy.deepcopy(instruments)
 
         for instrument in instruments:
-            instrument['properties']['extra_property'] = InstrumentFaker.fake.phone_number()
+            instrument['properties']['extra_property'] = signaldb.InstrumentFaker.fake.phone_number()
         self.assertTrue(self.db.upsert(instruments, 'append'))
         self.compare_instruments_with_db(instruments)
         now1 = self.db.get_utc_now()
@@ -128,13 +121,13 @@ class SignalDbTest(unittest.TestCase):
 
     def test_upsert_props_replace(self):
         """Test the replace mode for updating properties"""
-        instruments = InstrumentFaker.get(self.instruments_no)
+        instruments = signaldb.InstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
         now0 = self.db.get_utc_now()
         instruments0 = copy.deepcopy(instruments)
 
         for instrument in instruments:
-            instrument['properties']['extra_property'] = InstrumentFaker.fake.phone_number()
+            instrument['properties']['extra_property'] = signaldb.InstrumentFaker.fake.phone_number()
             instrument['properties'].pop('company_name', None)
         self.assertTrue(self.db.upsert(instruments, 'replace'))
         self.compare_instruments_with_db(instruments)
@@ -142,13 +135,13 @@ class SignalDbTest(unittest.TestCase):
 
     def test_upsert_update_series(self):
         """Test adding, modifying and removing series"""
-        instruments = InstrumentFaker.get(self.instruments_no)
+        instruments = signaldb.InstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
         now0 = self.db.get_utc_now()
         instruments0 = copy.deepcopy(instruments)
 
         for instrument in instruments:
-            instrument['series']['new_series'] = InstrumentFaker.get_series()
+            instrument['series']['new_series'] = signaldb.InstrumentFaker.get_series()
         self.assertTrue(self.db.upsert(instruments))
         self.compare_instruments_with_db(instruments)
         now1 = self.db.get_utc_now()
@@ -170,7 +163,7 @@ class SignalDbTest(unittest.TestCase):
         instruments3 = copy.deepcopy(instruments)
 
         for instrument in instruments:
-            instrument['series']['new_series_2'] = InstrumentFaker.get_series()
+            instrument['series']['new_series_2'] = signaldb.InstrumentFaker.get_series()
         instruments_snapshot = copy.deepcopy(instruments)
         for instrument in instruments:
             instrument['series'].pop('price', None)
@@ -180,10 +173,11 @@ class SignalDbTest(unittest.TestCase):
         self.compare_instruments_with_db(instruments0, now0)
         self.compare_instruments_with_db(instruments1, now1)
         self.compare_instruments_with_db(instruments2, now2)
+        self.compare_instruments_with_db(instruments3, now3)
 
     def test_upsert_and_check(self):
         """Insert a bunch of instruments, retrieve them back from the db and test if we've got the same data"""
-        instruments = InstrumentFaker.get(self.instruments_no)
+        instruments = signaldb.InstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
         self.compare_instruments_with_db(instruments)
 
@@ -211,57 +205,3 @@ class SignalDbTest(unittest.TestCase):
                 self.assertSetEqual(set(series_original.keys()), set(series_from_db.keys()))
                 for series_key in series_original.keys():
                     self.assertListEqual(series_from_db[series_key], series_original[series_key])
-
-
-class InstrumentFaker:
-    """Random financial instrument generator"""
-    fake = faker.Faker()
-    time_series_len = 365
-
-    @classmethod
-    def get(cls, n=1):
-        instruments = []
-        for i in range(n):
-            instrument = {'tickers': cls.get_tickers(), 'properties': cls.get_props(),
-                          'series': {'price': cls.get_series(), 'volume': cls.get_series()}}
-            instruments.append(instrument)
-        return instruments
-
-    @classmethod
-    def get_props(cls):
-        instrument_type = random.choice(['equity', 'equity_option'])
-        if instrument_type == 'equity':
-            return cls.get_equity_props()
-        if instrument_type == 'equity_option':
-            return cls.get_equity_option_props()
-        return {}
-
-    @classmethod
-    def get_equity_props(cls):
-        properties = {'category': 'equity',
-                      'company_name': cls.fake.company(),
-                      'country_code': cls.fake.country_code()}
-        return properties
-
-    @classmethod
-    def get_equity_option_props(cls):
-        properties = {'category': 'equity-option',
-                      'underlying_entity': cls.fake.company(),
-                      'strike': random.expovariate(100),
-                      'maturity': cls.fake.date_time_this_century(after_now=True),
-                      'option_type': random.choice(['put', 'call'])}
-        return properties
-
-    @classmethod
-    def get_tickers(cls):
-        tickers = [['ISIN', cls.fake.md5().upper()[:12]], ['BB_CODE', cls.fake.md5().upper()]]
-        return tickers
-
-    @classmethod
-    def get_series(cls):
-        start_date = datetime.datetime.utcnow().replace(year=2000)
-#        start_date = cls.fake.date_time_between(start_date="-1y", end_date="now", tzinfo=None)
-        series = [[signaldb.truncate_microseconds(start_date + datetime.timedelta(days=i)), random.expovariate(1)]
-                  for i in range(cls.time_series_len)]
-        series = [x for x in series if x[0] < datetime.datetime.utcnow()]
-        return series
