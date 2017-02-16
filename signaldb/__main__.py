@@ -92,6 +92,18 @@ def list_tickers(host, port, user, pwd, db):
     click.echo('Object count: %d refs, %d paths, %d sheets.' % doc_count)
 
 
+@cli.command('test')
+@click.option('--host', default='', help='Specify mongodb host explicitly')
+@click.option('--port', default='', help='Specify mongodb port explicitly')
+@click.option('--user', default='', help='Specify mongodb user explicitly')
+@click.option('--pwd', default='', help='Specify mongodb credentials explicitly')
+@click.option('--db', default='market_test', help='Specify the database to connect to')
+def test(host, port, user, pwd, db):
+    InstrumentFaker.time_series_len = 7000
+    instruments = InstrumentFaker.get(20)
+    self.assertTrue(self.db.upsert(instruments))
+
+
 @cli.command('find')
 @click.argument('filter_doc', nargs=1)
 @click.option('--host', default='', help='Specify mongodb host explicitly')
