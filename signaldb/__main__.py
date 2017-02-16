@@ -26,7 +26,10 @@ def cli():
 @click.option('--user', default='', help='Specify mongodb user explicitly')
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly explicitly')
 @click.option('--db', default='market', help='Specify the database to connect to')
-def upsert(input_files, props_merge_mode, series_merge_mode, host, port, user, pwd, db):
+@click.option('--debug/--no-debug', default=False, help='Show debug messages')
+def upsert(input_files, props_merge_mode, series_merge_mode, host, port, user, pwd, db, debug):
+    if debug:
+        root_logger.setLevel(logging.DEBUG)
     conn = signaldb.get_db(host, port, user, pwd, db)
     signal_db = signaldb.SignalDb(conn)
     for input_file in input_files:
@@ -34,8 +37,9 @@ def upsert(input_files, props_merge_mode, series_merge_mode, host, port, user, p
             with open(input_file, 'r') as f:
                 instruments = json.load(f)
         except json.decoder.JSONDecodeError:
-            logging.getLogger().error('Error parsing JSON in %s' % input_file)
+            logging.getLogger(__name__).error('Error parsing JSON in %s' % input_file)
             continue
+        logging.getLogger(__name__).debug('Processing file %s' % input_file)
         signal_db.upsert(instruments, props_merge_mode=props_merge_mode, series_merge_mode=series_merge_mode)
 
 
