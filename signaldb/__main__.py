@@ -24,7 +24,7 @@ def cli():
 @click.option('--props_merge_mode', default='append', help="Supported modes are 'append' (default) and 'replace'")
 @click.option('--series_merge_mode', default='append', help="Supported modes are 'append' (default) and 'replace'")
 @click.option('--host', default='', help='Specify mongodb host explicitly')
-@click.option('--port', default='', help='Specify mongodb port explicitly')
+@click.option('--port', default='', help='Specify mongodb port explicitly', type=click.INT)
 @click.option('--user', default='', help='Specify mongodb user explicitly')
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly explicitly')
 @click.option('--db', default='market', help='Specify the database to connect to')
@@ -35,6 +35,25 @@ def upsert(input_files, props_merge_mode, series_merge_mode, host, port, user, p
     conn = signaldb.get_db(host, port, user, pwd, db)
     signal_db = signaldb.SignalDb(conn)
     time_stamp = time.perf_counter()
+    instruments = read_instruments(input_files)
+    signal_db.upsert(instruments, props_merge_mode=props_merge_mode, series_merge_mode=series_merge_mode)
+    logging.getLogger(__name__).debug('Total execution time : %f' % (time.perf_counter() - time_stamp))
+
+
+@cli.command('consolidate')
+@click.argument('input_files', nargs=-1)
+@click.argument('output_file', nargs=1, type=click.File('w'))
+@click.option('--debug/--no-debug', default=False, help='Show debug messages')
+def consolidate(input_files, output_file, debug):
+    if debug:
+        root_logger.setLevel(logging.DEBUG)
+    time_stamp = time.perf_counter()
+    instruments = read_instruments(input_files)
+    json.dump(instruments, output_file, cls=signaldb.JSONEncoderExtension)
+    logging.getLogger(__name__).debug('Total execution time : %f' % (time.perf_counter() - time_stamp))
+
+
+def read_instruments(input_files):
     instruments = []
     for input_file in input_files:
         try:
@@ -47,15 +66,14 @@ def upsert(input_files, props_merge_mode, series_merge_mode, host, port, user, p
         except json.decoder.JSONDecodeError:
             logging.getLogger(__name__).error('Error parsing JSON in %s' % input_file)
             continue
-    signal_db.upsert(instruments, props_merge_mode=props_merge_mode, series_merge_mode=series_merge_mode)
-    logging.getLogger(__name__).debug('Total execution time : %f' % (time.perf_counter() - time_stamp))
+    return instruments
 
 
 @cli.command('get')
 @click.argument('source', nargs=1)
 @click.argument('ticker', nargs=1)
 @click.option('--host', default='', help='Specify mongodb host explicitly')
-@click.option('--port', default='', help='Specify mongodb port explicitly')
+@click.option('--port', default='', help='Specify mongodb port explicitly', type=click.INT)
 @click.option('--user', default='', help='Specify mongodb user explicitly')
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly')
 @click.option('--db', default='market', help='Specify the database to connect to')
@@ -71,7 +89,7 @@ def get(source, ticker, host, port, user, pwd, db):
 @cli.command('list')
 @click.argument('source', nargs=-1)
 @click.option('--host', default='', help='Specify mongodb host explicitly')
-@click.option('--port', default='', help='Specify mongodb port explicitly')
+@click.option('--port', default='', help='Specify mongodb port explicitly', type=click.INT)
 @click.option('--user', default='', help='Specify mongodb user explicitly')
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly')
 @click.option('--db', default='market', help='Specify the database to connect to')
@@ -93,7 +111,7 @@ def list_tickers(source, host, port, user, pwd, db):
 
 @cli.command('info')
 @click.option('--host', default='', help='Specify mongodb host explicitly')
-@click.option('--port', default='', help='Specify mongodb port explicitly')
+@click.option('--port', default='', help='Specify mongodb port explicitly', type=click.INT)
 @click.option('--user', default='', help='Specify mongodb user explicitly')
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly')
 @click.option('--db', default='market', help='Specify the database to connect to')
@@ -107,7 +125,7 @@ def list_tickers(host, port, user, pwd, db):
 @cli.command('find')
 @click.argument('filter_doc', nargs=1)
 @click.option('--host', default='', help='Specify mongodb host explicitly')
-@click.option('--port', default='', help='Specify mongodb port explicitly')
+@click.option('--port', default='', help='Specify mongodb port explicitly', type=click.INT)
 @click.option('--user', default='', help='Specify mongodb user explicitly')
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly explicitly')
 @click.option('--db', default='market', help='Specify the database to connect to')
@@ -125,7 +143,7 @@ def find(filter_doc, host, port, user, pwd, db):
 
 @cli.command('test')
 @click.option('--host', default='', help='Specify mongodb host explicitly')
-@click.option('--port', default='', help='Specify mongodb port explicitly')
+@click.option('--port', default='', help='Specify mongodb port explicitly', type=click.INT)
 @click.option('--user', default='', help='Specify mongodb user explicitly')
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly')
 @click.option('--db', default='market_test', help='Specify the database to connect to')

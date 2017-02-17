@@ -1,4 +1,5 @@
 import datetime
+import json
 import pytz
 import logging
 import pymongo
@@ -208,28 +209,34 @@ class SignalDb:
 
     def upsert(self, instruments, props_merge_mode='append', series_merge_mode='append'):
         """Update or insert a list of instruments."""
-        if props_merge_mode not in ['append', 'replace']:
-            self.logger.error('Requested properties merge mode is not supported yet.')
-            return False
         if series_merge_mode not in ['append', 'replace']:
             self.logger.error('Requested series merge mode is not supported yet.')
             return False
-        if type(instruments) is not list:
-            self.logger.error("upsert: supplied instrument data is not a list.")
+        consolidated_instruments = self.consolidate(instruments, props_merge_mode)
+        if consolidated_instruments is None:
             return False
+        for instrument in consolidated_instruments:
+            self.__upsert_instrument(instrument, props_merge_mode, series_merge_mode)
+        return True
+
+    def consolidate(self, instruments, props_merge_mode='append'):
+        """Consolidate the instrument"""
+        if props_merge_mode not in ['append', 'replace']:
+            self.logger.error('Requested properties merge mode is not supported yet.')
+            return None
+        if type(instruments) is not list:
+            self.logger.error('upsert: supplied instrument data is not a list.')
+            return None
         signaldb.recursive_str_to_datetime(instruments)
         checked_instruments = []
         for i, instrument in enumerate(instruments):
             check_result = self.check_instrument(instrument)
             if check_result != 0:
-                self.logger.error("Supplied instrument has wrong type (index no %d; failed test %d)." %
-                                  (i+1, check_result))
+                self.logger.error('Supplied instrument has wrong type (index no %d; failed test %d).' %
+                                  (i + 1, check_result))
                 continue
             checked_instruments.append(instrument)
-        consolidated_instruments = consolidate_instruments(checked_instruments, props_merge_mode)
-        for instrument in consolidated_instruments:
-            self.__upsert_instrument(instrument, props_merge_mode, series_merge_mode)
-        return True
+        return consolidate_instruments(checked_instruments, props_merge_mode)
 
     def __upsert_instrument(self, instrument, props_merge_mode, series_merge_mode):
         """Update or insert an instrument"""
@@ -477,7 +484,7 @@ def consolidate_instruments(instruments, props_merge_mode):
         if ticker not in properties_map.keys():
             properties_map[ticker] = instrument['properties']
         else:
-            properties_map[ticker] = merge_props(properties_map[ticker], instrument['properties'], props_merge_mode)
+            merge_props(properties_map[ticker], instrument['properties'], props_merge_mode)
         if ticker not in series_map.keys():
             series_map[ticker] = {}
         for series_key in instrument['series'].keys():
@@ -486,8 +493,9 @@ def consolidate_instruments(instruments, props_merge_mode):
             else:
                 old_samples = series_map[ticker][series_key]
                 new_samples = instrument['series'][series_key]
-                for key in new_samples.keys():
-                    old_samples[key] = new_samples[key]
+                for sample in new_samples:
+                    key = sample[0]
+                    old_samples[key] = sample[1]
 
     consolidated = []
     for ticker in ticker_map:
