@@ -34,20 +34,21 @@ def upsert(input_files, props_merge_mode, series_merge_mode, host, port, user, p
         root_logger.setLevel(logging.DEBUG)
     conn = signaldb.get_db(host, port, user, pwd, db)
     signal_db = signaldb.SignalDb(conn)
-    time_stamps = [time.perf_counter(), ]
+    time_stamp = time.perf_counter()
+    instruments = []
     for input_file in input_files:
         try:
             with open(input_file, 'r') as f:
-                instruments = json.load(f)
+                decoded_json = json.load(f)
+            if type(decoded_json) is list:
+                instruments += decoded_json
+            else:
+                instruments.append(decoded_json)
         except json.decoder.JSONDecodeError:
             logging.getLogger(__name__).error('Error parsing JSON in %s' % input_file)
             continue
-        logging.getLogger(__name__).debug('Processing file %s' % input_file)
-        signal_db.upsert(instruments, props_merge_mode=props_merge_mode, series_merge_mode=series_merge_mode)
-
-        logging.getLogger(__name__).debug('Upserting %s took: %f' % (input_file, time.perf_counter() - time_stamps[-1]))
-        time_stamps.append(time.perf_counter())
-    logging.getLogger(__name__).debug('Total execution time : %f' % (time.perf_counter() - time_stamps[0]))
+    signal_db.upsert(instruments, props_merge_mode=props_merge_mode, series_merge_mode=series_merge_mode)
+    logging.getLogger(__name__).debug('Total execution time : %f' % (time.perf_counter() - time_stamp))
 
 
 @cli.command('get')

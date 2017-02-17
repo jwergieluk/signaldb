@@ -1,5 +1,4 @@
 import datetime
-import time
 import pytz
 import logging
 import pymongo
@@ -59,7 +58,7 @@ class SignalDb:
         if type(instrument['tickers']) is not list:
             return 3
         if len(instrument['tickers']) == 0:
-            return 3
+            return 4
         for ticker in instrument['tickers']:
             if type(ticker) not in [list, tuple]:
                 return 5
@@ -215,18 +214,20 @@ class SignalDb:
         if series_merge_mode not in ['append', 'replace']:
             self.logger.error('Requested series merge mode is not supported yet.')
             return False
-        if type(instruments) not in [list, tuple, dict]:
-            self.logger.error("upsert: supplied instrument data is not dict, list, or tuple")
+        if type(instruments) is not list:
+            self.logger.error("upsert: supplied instrument data is not a list.")
             return False
-        if type(instruments) is dict:
-            instruments = [instruments]
         signaldb.recursive_str_to_datetime(instruments)
+        checked_instruments = []
         for i, instrument in enumerate(instruments):
             check_result = self.check_instrument(instrument)
             if check_result != 0:
                 self.logger.error("Supplied instrument has wrong type (index no %d; failed test %d)." %
                                   (i+1, check_result))
                 continue
+            checked_instruments.append(instrument)
+        consolidated_instruments = consolidate_instruments(checked_instruments, props_merge_mode)
+        for instrument in consolidated_instruments:
             self.__upsert_instrument(instrument, props_merge_mode, series_merge_mode)
         return True
 
@@ -314,7 +315,7 @@ class SignalDb:
                     merged_series = instrument['series'][key]
                 else:
                     current_series_data = self.__get_series(series_refs['v'][key], now, lower_bound, upper_bound, )
-                    merged_series = type(self).__merge_series(current_series_data, instrument['series'][key])
+                    merged_series = merge_series(current_series_data, instrument['series'][key])
                 for sample in merged_series:
                     flat_series.append({'k': series_refs['v'][key], 'r': now,
                                         't': sample[0], 'v': sample[1]})
@@ -398,18 +399,6 @@ class SignalDb:
         return lower_bound, upper_bound
 
     @staticmethod
-    def __merge_series(old_series, new_series):
-        old_series_dict = dict(old_series)
-        new_series_dict = dict(new_series)
-        series = []
-        for t in new_series_dict.keys():
-            if t in old_series_dict.keys():
-                if old_series_dict[t] == new_series_dict[t]:
-                    continue
-            series.append([t, new_series_dict[t]])
-        return series
-
-    @staticmethod
     def __clean_fields_path_obj(obj: dict):
         """Remove _id field and all fields not belonging to a path obj"""
         for key in list(obj.keys()):
@@ -432,7 +421,7 @@ class SignalDb:
 
 def get_series_time_bounds(series: list):
     if len(series) == 0:
-        return datetime.min, datetime.min
+        return datetime.datetime.min, datetime.datetime.min
     times = [sample[0] for sample in series]
     return min(times), max(times)
 
@@ -458,6 +447,54 @@ def merge_props(old_props: dict, new_props: dict, merge_mode: str):
     return current_props_modified
 
 
+def merge_series(old_series, new_series):
+    old_series_dict = dict(old_series)
+    new_series_dict = dict(new_series)
+    series = []
+    for t in new_series_dict.keys():
+        if t in old_series_dict.keys():
+            if old_series_dict[t] == new_series_dict[t]:
+                continue
+        series.append([t, new_series_dict[t]])
+    return series
+
+
 def get_utc_datetime(d: datetime.datetime):
     utc_time_zone = pytz.timezone('UTC')
     return d.astimezone(utc_time_zone).replace(tzinfo=None)
+
+
+def consolidate_instruments(instruments, props_merge_mode):
+    """Return a list in which each instrument occurs exactly once"""
+    ticker_map = {}
+    properties_map = {}
+    series_map = {}
+
+    for instrument in instruments:
+        ticker = tuple(instrument['tickers'][0])
+        if ticker not in ticker_map.keys():
+            ticker_map[ticker] = instrument['tickers']
+        if ticker not in properties_map.keys():
+            properties_map[ticker] = instrument['properties']
+        else:
+            properties_map[ticker] = merge_props(properties_map[ticker], instrument['properties'], props_merge_mode)
+        if ticker not in series_map.keys():
+            series_map[ticker] = {}
+        for series_key in instrument['series'].keys():
+            if series_key not in series_map[ticker].keys():
+                series_map[ticker][series_key] = dict(instrument['series'][series_key])
+            else:
+                old_samples = series_map[ticker][series_key]
+                new_samples = instrument['series'][series_key]
+                for key in new_samples.keys():
+                    old_samples[key] = new_samples[key]
+
+    consolidated = []
+    for ticker in ticker_map:
+        instrument = dict(tickers=ticker_map[ticker], properties=properties_map[ticker], series={})
+        for series_key in series_map[ticker].keys():
+            series_dict = series_map[ticker][series_key]
+            instrument['series'][series_key] = [[k, series_dict[k]] for k in sorted(list(series_dict.keys()))]
+        consolidated.append(instrument)
+
+    return consolidated
