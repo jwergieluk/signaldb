@@ -1,11 +1,11 @@
 import datetime
-import json
-import pytz
 import logging
 import pymongo
 import pymongo.errors
-import signaldb
+import pytz
 from bson.objectid import ObjectId
+
+import signaldb
 
 
 class SignalDb:
@@ -85,10 +85,6 @@ class SignalDb:
                 if type(sample[0]) not in [datetime.date, datetime.datetime]:
                     return 14
         return 0
-
-    def rename(self, source_old: str, ticker_old: str, source_new: str, ticker_new: str):
-        """Alter a ticker"""
-        pass
 
     def delete(self, source: str, ticker: str):
         """Delete an instrument"""

@@ -77,7 +77,8 @@ def read_instruments(input_files):
 @click.option('--user', default='', help='Specify mongodb user explicitly')
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly')
 @click.option('--db', default='market', help='Specify the database to connect to')
-def get(source, ticker, host, port, user, pwd, db):
+@click.option('--debug/--no-debug', default=False, help='Show debug messages')
+def get(source, ticker, host, port, user, pwd, db, debug):
     conn = signaldb.get_db(host, port, user, pwd, db)
     signal_db = signaldb.SignalDb(conn)
     instrument = signal_db.get(source, ticker)
