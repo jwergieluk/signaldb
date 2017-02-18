@@ -2,3 +2,5 @@ venv
 __pycache__
 signaldb.egg-info
 .idea
+build
+dist

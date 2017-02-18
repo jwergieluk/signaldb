@@ -16,7 +16,8 @@ setup(
     author_email='julian@wergieluk.com',
     url='https://www.wergieluk.com',
     license=license,
-    install_requires=[],
+    install_requires=['appdirs', 'click', 'Faker', 'nose', 'packaging', 'pymongo', 'pyparsing', 
+                      'python-dateutil', 'pytz', 'six', 'tonyg-rfc3339'],
     packages=find_packages(),
     classifiers=[
         'Development Status :: 4 - Beta',
@@ -24,3 +25,4 @@ setup(
     ],
     entry_points={'console_scripts': ['sdb = signaldb.__main__:cli']}
 )
+

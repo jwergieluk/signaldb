@@ -1,9 +1,11 @@
+appdirs==1.4.0
 click==6.7
 Faker==0.7.7
 nose==1.3.7
+packaging==16.8
 pymongo==3.3.1
+pyparsing==2.1.10
 python-dateutil==2.6.0
 pytz==2016.7
--e git+git@gitlab.com:jwergieluk/signaldb.git@59546bf1bba915d33be115f0ffbadffe4e7e2295#egg=signaldb
 six==1.10.0
 tonyg-rfc3339==0.1
