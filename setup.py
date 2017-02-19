@@ -9,7 +9,7 @@ with open('LICENSE') as f:
 
 setup(
     name='signaldb',
-    version='0.0.1',
+    version='0.0.2',
     description='A market data system for financial time-series',
     long_description=readme,
     author='Julian Wergieluk',
