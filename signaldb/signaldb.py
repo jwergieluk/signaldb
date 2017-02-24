@@ -45,6 +45,18 @@ class SignalDb:
         if self.spaces_col in self.db.collection_names():
             self.db[self.spaces_col].delete_many({})
 
+    def rollback(self, time_stamp_str):
+        """Restore the state of the database at the specified time"""
+        time_stamp = signaldb.str_to_datetime(time_stamp_str)
+        if self.refs_col in self.db.collection_names():
+            self.db[self.refs_col].delete_many({'valid_from': {'$gt': time_stamp}})
+        if self.paths_col in self.db.collection_names():
+            self.db[self.paths_col].delete_many({'r': {'$gt': time_stamp}})
+        if self.sheets_col in self.db.collection_names():
+            self.db[self.sheets_col].delete_many({'r': {'$gt': time_stamp}})
+        if self.spaces_col in self.db.collection_names():
+            self.db[self.spaces_col].delete_many({'r': {'$gt': time_stamp}})
+
     def count_items(self):
         """Return a triple giving the document count in each collection"""
         return self.db[self.refs_col].count(), self.db[self.paths_col].count(), self.db[self.sheets_col].count()
@@ -203,12 +215,15 @@ class SignalDb:
             self.logger.error('Given %s is empty' % label_name)
         return True
 
-    def upsert(self, instruments, props_merge_mode='append', series_merge_mode='append'):
+    def upsert(self, instruments, props_merge_mode='append', series_merge_mode='append', consolidate_flag=True):
         """Update or insert a list of instruments."""
         if series_merge_mode not in ['append', 'replace']:
             self.logger.error('Requested series merge mode is not supported yet.')
             return False
-        consolidated_instruments = self.consolidate(instruments, props_merge_mode)
+        if consolidate_flag:
+            consolidated_instruments = self.consolidate(instruments, props_merge_mode)
+        else:
+            consolidated_instruments = instruments
         if consolidated_instruments is None:
             return False
         for instrument in consolidated_instruments:

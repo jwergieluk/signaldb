@@ -1,6 +1,8 @@
 import json
 import logging
 import click
+import rfc3339
+
 import signaldb
 import time
 
@@ -28,15 +30,22 @@ def cli():
 @click.option('--user', default='', help='Specify mongodb user explicitly')
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly explicitly')
 @click.option('--db', default='market', help='Specify the database to connect to')
+@click.option('--consolidate-input/--no-consolidate-input', default=True, help='Consolidate instruments.')
 @click.option('--debug/--no-debug', default=False, help='Show debug messages')
-def upsert(input_files, props_merge_mode, series_merge_mode, host, port, user, pwd, db, debug):
+def upsert(input_files, props_merge_mode, series_merge_mode, host, port, user, pwd, db, consolidate_input, debug):
+    click.echo('Checkpoint: %s' % rfc3339.datetimetostr(signaldb.SignalDb.get_utc_now()))
     if debug:
         root_logger.setLevel(logging.DEBUG)
     conn = signaldb.get_db(host, port, user, pwd, db)
-    signal_db = signaldb.SignalDb(conn)
+    sdb = signaldb.SignalDb(conn)
     time_stamp = time.perf_counter()
-    instruments = read_instruments(input_files)
-    signal_db.upsert(instruments, props_merge_mode=props_merge_mode, series_merge_mode=series_merge_mode)
+    try:
+        instruments = read_instruments(input_files)
+    except FileNotFoundError:
+        logging.getLogger(__name__).error('File not found.')
+        return
+    sdb.upsert(instruments, props_merge_mode=props_merge_mode, series_merge_mode=series_merge_mode,
+               consolidate_flag=consolidate_input)
     logging.getLogger(__name__).debug('Total execution time : %f' % (time.perf_counter() - time_stamp))
 
 
@@ -70,6 +79,21 @@ def read_instruments(input_files):
 
 
 @cli.command('get')
+@click.argument('time-stamp', nargs=1)
+@click.option('--host', default='', help='Specify mongodb host explicitly')
+@click.option('--port', default='27017', help='Specify mongodb port explicitly', type=click.INT)
+@click.option('--user', default='', help='Specify mongodb user explicitly')
+@click.option('--pwd', default='', help='Specify mongodb credentials explicitly')
+@click.option('--db', default='market', help='Specify the database to connect to')
+def rollback(time_stamp, host, port, user, pwd, db, debug):
+    if debug:
+        root_logger.setLevel(logging.DEBUG)
+    conn = signaldb.get_db(host, port, user, pwd, db)
+    sdb = signaldb.SignalDb(conn)
+    sdb.rollback(time_stamp)
+
+
+@cli.command('get')
 @click.argument('source', nargs=1)
 @click.argument('ticker', nargs=1)
 @click.option('--host', default='', help='Specify mongodb host explicitly')
@@ -79,9 +103,11 @@ def read_instruments(input_files):
 @click.option('--db', default='market', help='Specify the database to connect to')
 @click.option('--debug/--no-debug', default=False, help='Show debug messages')
 def get(source, ticker, host, port, user, pwd, db, debug):
+    if debug:
+        root_logger.setLevel(logging.DEBUG)
     conn = signaldb.get_db(host, port, user, pwd, db)
-    signal_db = signaldb.SignalDb(conn)
-    instrument = signal_db.get(source, ticker)
+    sdb = signaldb.SignalDb(conn)
+    instrument = sdb.get(source, ticker)
     if instrument is None:
         return
     click.echo(json.dumps(instrument, indent=4, sort_keys=True, cls=signaldb.JSONEncoderExtension))
@@ -96,12 +122,12 @@ def get(source, ticker, host, port, user, pwd, db, debug):
 @click.option('--db', default='market', help='Specify the database to connect to')
 def list_tickers(source, host, port, user, pwd, db):
     conn = signaldb.get_db(host, port, user, pwd, db)
-    signal_db = signaldb.SignalDb(conn)
+    sdb = signaldb.SignalDb(conn)
     ticker_list = []
     if len(source) == 0:
-        ticker_list = signal_db.list_tickers()
+        ticker_list = sdb.list_tickers()
     if len(source) == 1:
-        ticker_list = signal_db.list_tickers(source[0])
+        ticker_list = sdb.list_tickers(source[0])
     if len(source) > 1:
         return
     if ticker_list is None:
@@ -116,11 +142,12 @@ def list_tickers(source, host, port, user, pwd, db):
 @click.option('--user', default='', help='Specify mongodb user explicitly')
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly')
 @click.option('--db', default='market', help='Specify the database to connect to')
-def list_tickers(host, port, user, pwd, db):
+def info(host, port, user, pwd, db):
     conn = signaldb.get_db(host, port, user, pwd, db)
-    signal_db = signaldb.SignalDb(conn)
-    doc_count = signal_db.count_items()
+    sdb = signaldb.SignalDb(conn)
+    doc_count = sdb.count_items()
     click.echo('Object count: %d refs, %d paths, %d sheets.' % doc_count)
+    click.echo('Checkpoint: %s' % rfc3339.datetimetostr(signaldb.SignalDb.get_utc_now()))
 
 
 @cli.command('find')
@@ -137,8 +164,8 @@ def find(filter_doc, host, port, user, pwd, db):
         logging.getLogger().error('Error parsing search query')
         return
     conn = signaldb.get_db(host, port, user, pwd, db)
-    signal_db = signaldb.SignalDb(conn)
-    instruments = signal_db.find_instruments(filter_doc)
+    sdb = signaldb.SignalDb(conn)
+    instruments = sdb.find_instruments(filter_doc)
     click.echo(json.dumps(instruments, indent=4, sort_keys=True, cls=signaldb.JSONEncoderExtension))
 
 

@@ -14,7 +14,7 @@ setup(
     long_description=readme,
     author='Julian Wergieluk',
     author_email='julian@wergieluk.com',
-    url='https://www.wergieluk.com',
+    url='http://www.wergieluk.com',
     license=license,
     install_requires=['appdirs', 'click', 'Faker', 'nose', 'packaging', 'pymongo', 'pyparsing', 
                       'python-dateutil', 'pytz', 'six', 'tonyg-rfc3339'],
