@@ -55,14 +55,14 @@ def read_values_from_env(conf: dict):
         try:
             conf[key] = type(conf[key])(os.environ[key])
         except ValueError:
-            logging.getLogger().warning("Failed reading %s from environment." % key)
+            logging.getLogger().warning('Failed reading %s from environment.' % key)
             status = False
     return status
 
 
 def get_db(host, port, user, pwd, db_name):
     time_stamp = time.perf_counter()
-    cred = {"sdb_host": "", "sdb_port": 27017, "sdb_user": "", "sdb_pwd": ""}
+    cred = {'sdb_host': '', 'sdb_port': 27017, 'sdb_user': '', 'sdb_pwd': '', 'sdb_db': ''}
     read_values_from_env(cred)
 
     if len(host) != 0:
@@ -73,6 +73,8 @@ def get_db(host, port, user, pwd, db_name):
         cred['sdb_user'] = user
     if len(pwd) != 0:
         cred['sdb_pwd'] = pwd
+    if len(db_name) != 0:
+        cred['sdb_db'] = db_name
 
     if not all([len(str(cred[key])) > 0 for key in cred.keys()]):
         cred['sdb_pwd'] = '*' * len(cred['sdb_pwd'])
@@ -80,9 +82,9 @@ def get_db(host, port, user, pwd, db_name):
                                   ' '.join(tuple(['%s:%s' % (key, str(cred[key])) for key in cred.keys()])))
         raise SystemExit(1)
 
-    mongo_client = pymongo.MongoClient(cred["sdb_host"], cred["sdb_port"])
-    db = mongo_client[db_name]
-    db.authenticate(cred["sdb_user"], cred["sdb_pwd"], source='admin')
+    mongo_client = pymongo.MongoClient(cred['sdb_host'], cred['sdb_port'])
+    db = mongo_client[cred['sdb_db']]
+    db.authenticate(cred['sdb_user'], cred['sdb_pwd'], source='admin')
     logging.getLogger().debug('Connection with %s:%s established in: %f' % (cred['sdb_host'], cred['sdb_port'],
                                                                             time.perf_counter() - time_stamp))
     return db
