@@ -29,7 +29,7 @@ def cli():
 @click.option('--port', default='', help='Specify mongodb port explicitly')
 @click.option('--user', default='', help='Specify mongodb user explicitly')
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly explicitly')
-@click.option('--db', default='market', help='Specify the database to connect to')
+@click.option('--db', default='', help='Specify the database to connect to')
 @click.option('--consolidate-input/--no-consolidate-input', default=True, help='Consolidate instruments.')
 @click.option('--debug/--no-debug', default=False, help='Show debug messages')
 def upsert(input_files, props_merge_mode, series_merge_mode, host, port, user, pwd, db, consolidate_input, debug):
@@ -84,7 +84,7 @@ def read_instruments(input_files):
 @click.option('--port', default='27017', help='Specify mongodb port explicitly', type=click.INT)
 @click.option('--user', default='', help='Specify mongodb user explicitly')
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly')
-@click.option('--db', default='market', help='Specify the database to connect to')
+@click.option('--db', default='', help='Specify the database to connect to')
 def rollback(time_stamp, host, port, user, pwd, db, debug):
     if debug:
         root_logger.setLevel(logging.DEBUG)
@@ -100,7 +100,7 @@ def rollback(time_stamp, host, port, user, pwd, db, debug):
 @click.option('--port', default='', help='Specify mongodb port explicitly')
 @click.option('--user', default='', help='Specify mongodb user explicitly')
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly')
-@click.option('--db', default='market', help='Specify the database to connect to')
+@click.option('--db', default='', help='Specify the database to connect to')
 @click.option('--debug/--no-debug', default=False, help='Show debug messages')
 def get(source, ticker, host, port, user, pwd, db, debug):
     if debug:
@@ -119,7 +119,7 @@ def get(source, ticker, host, port, user, pwd, db, debug):
 @click.option('--port', default='', help='Specify mongodb port explicitly')
 @click.option('--user', default='', help='Specify mongodb user explicitly')
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly')
-@click.option('--db', default='market', help='Specify the database to connect to')
+@click.option('--db', default='', help='Specify the database to connect to')
 def list_tickers(source, host, port, user, pwd, db):
     conn = signaldb.get_db(host, port, user, pwd, db)
     sdb = signaldb.SignalDb(conn)
@@ -141,7 +141,7 @@ def list_tickers(source, host, port, user, pwd, db):
 @click.option('--port', default='', help='Specify mongodb port explicitly')
 @click.option('--user', default='', help='Specify mongodb user explicitly')
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly')
-@click.option('--db', default='market', help='Specify the database to connect to')
+@click.option('--db', default='', help='Specify the database to connect to')
 def info(host, port, user, pwd, db):
     conn = signaldb.get_db(host, port, user, pwd, db)
     sdb = signaldb.SignalDb(conn)
@@ -156,7 +156,7 @@ def info(host, port, user, pwd, db):
 @click.option('--port', default='', help='Specify mongodb port explicitly')
 @click.option('--user', default='', help='Specify mongodb user explicitly')
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly explicitly')
-@click.option('--db', default='market', help='Specify the database to connect to')
+@click.option('--db', default='', help='Specify the database to connect to')
 def find(filter_doc, host, port, user, pwd, db):
     try:
         filter_doc = json.loads(filter_doc)
@@ -167,22 +167,4 @@ def find(filter_doc, host, port, user, pwd, db):
     sdb = signaldb.SignalDb(conn)
     instruments = sdb.find_instruments(filter_doc)
     click.echo(json.dumps(instruments, indent=4, sort_keys=True, cls=signaldb.JSONEncoderExtension))
-
-
-@cli.command('test')
-@click.option('--host', default='', help='Specify mongodb host explicitly')
-@click.option('--port', default='', help='Specify mongodb port explicitly')
-@click.option('--user', default='', help='Specify mongodb user explicitly')
-@click.option('--pwd', default='', help='Specify mongodb credentials explicitly')
-@click.option('--db', default='market_test', help='Specify the database to connect to')
-def test(host, port, user, pwd, db):
-    root_logger.setLevel(logging.DEBUG)
-    conn = signaldb.get_db(host, port, user, pwd, db)
-    sdb = signaldb.SignalDb(conn)
-    sdb.purge_db()
-    signaldb.InstrumentFaker.time_series_len = 7000
-    instruments = signaldb.InstrumentFaker.get(20)
-    time_stamp = time.perf_counter()
-    sdb.upsert(instruments)
-    root_logger.debug('Total test time: %f' % (time.perf_counter() - time_stamp))
 
