@@ -2,6 +2,7 @@
 # import sys
 # sys.path.insert(0, os.path.abspath('..'))
 import copy
+import datetime
 import logging
 import time
 import unittest
@@ -181,14 +182,33 @@ class SignalDbTest(unittest.TestCase):
         self.assertTrue(self.db.upsert(instruments))
         self.compare_instruments_with_db(instruments)
 
-    def compare_instruments_with_db(self, instruments: list, now=None):
+    def test_get_series_slice(self):
+        """Test the parameters series_from and series_to of the get function"""
+        instruments = signaldb.InstrumentFaker.get(self.instruments_no)
+        self.assertTrue(self.db.upsert(instruments))
+        series_from = signaldb.str_to_datetime('1995-03-01T00:00:00Z')
+        series_to = signaldb.str_to_datetime('1995-04-01T00:00:00Z')
         for instrument in instruments:
-            self.compare_instrument_with_db(instrument, now=now)
+            for series_key in instrument['series']:
+                series = instrument['series'][series_key]
+                instrument['series'][series_key] = [tv for tv in series if series_from <= tv[0] <= series_to]
+        now = self.db.get_utc_now()
+        self.compare_instrument_with_db(instruments, now, series_from, series_to)
 
-    def compare_instrument_with_db(self, instrument: dict, now=None):
+    def compare_instruments_with_db(self, instruments: list, now=None,
+                                    lower_bound=datetime.datetime.min, upper_bound=datetime.datetime.max):
+        for instrument in instruments:
+            self.compare_instrument_with_db(instrument, now=now, lower_bound=lower_bound, upper_bound=upper_bound)
+
+    def compare_instrument_with_db(self, instrument: dict, now=None,
+                                   lower_bound=datetime.datetime.min, upper_bound=datetime.datetime.max):
         for ticker in instrument['tickers']:
             with self.subTest(context=ticker):
-                instrument_from_db = self.db.get(ticker[0], ticker[1], now=now)
+                if lower_bound != datetime.datetime.min or upper_bound != datetime.datetime.max:
+                    instrument_from_db = self.db.get(ticker[0], ticker[1], now=now,
+                                                     series_from=lower_bound, series_to=upper_bound)
+                else:
+                    instrument_from_db = self.db.get(ticker[0], ticker[1], now=now)
                 self.assertEqual(self.db.check_instrument(instrument_from_db), 0)
 
                 """Test properties"""

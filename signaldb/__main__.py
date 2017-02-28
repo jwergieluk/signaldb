@@ -78,7 +78,7 @@ def read_instruments(input_files):
     return instruments
 
 
-@cli.command('get')
+@cli.command('rollback')
 @click.argument('time-stamp', nargs=1)
 @click.option('--host', default='', help='Specify mongodb host explicitly')
 @click.option('--port', default='27017', help='Specify mongodb port explicitly', type=click.INT)

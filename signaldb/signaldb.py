@@ -161,7 +161,8 @@ class SignalDb:
             instruments.append(instrument)
         return instruments
 
-    def get(self, source: str, ticker: str, now=None):
+    def get(self, source: str, ticker: str, now=None,
+            series_from=datetime.datetime.min, series_to=datetime.datetime.max):
         """Find a single instrument and return it in the standard form"""
         now = self.set_now(now)
         if now is None:
@@ -192,7 +193,7 @@ class SignalDb:
 
         series = {}
         for ref in series_refs['v'].items():
-            observations = self.__get_series(ref[1], now)
+            observations = self.__get_series(ref[1], now, series_from, series_to)
             if len(observations) > 0:
                 series[ref[0]] = observations
             else:

@@ -50,7 +50,7 @@ class InstrumentFaker:
 
     @classmethod
     def get_series(cls, start_year=1995):
-        start_date = datetime.datetime.utcnow().replace(year=start_year)
+        start_date = datetime.datetime.utcnow().replace(year=start_year, month=2, day=15)
         series = [[signaldb.truncate_microseconds(start_date + datetime.timedelta(days=i)), random.expovariate(1)]
                   for i in range(cls.time_series_len)]
         series = [x for x in series if x[0] < datetime.datetime.utcnow()]
