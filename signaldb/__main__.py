@@ -33,7 +33,7 @@ def cli():
 @click.option('--consolidate-input/--no-consolidate-input', default=True, help='Consolidate instruments.')
 @click.option('--debug/--no-debug', default=False, help='Show debug messages')
 def upsert(input_files, props_merge_mode, series_merge_mode, host, port, user, pwd, db, consolidate_input, debug):
-    click.echo('Checkpoint: %s' % rfc3339.datetimetostr(signaldb.SignalDb.get_utc_now()))
+    click.echo('Checkpoint: %s' % rfc3339.datetimetostr(signaldb.get_utc_now()))
     if debug:
         root_logger.setLevel(logging.DEBUG)
     conn = signaldb.get_db(host, port, user, pwd, db)
@@ -81,7 +81,7 @@ def read_instruments(input_files):
 @cli.command('rollback')
 @click.argument('time-stamp', nargs=1)
 @click.option('--host', default='', help='Specify mongodb host explicitly')
-@click.option('--port', default='27017', help='Specify mongodb port explicitly', type=click.INT)
+@click.option('--port', default='', help='Specify mongodb port explicitly')
 @click.option('--user', default='', help='Specify mongodb user explicitly')
 @click.option('--pwd', default='', help='Specify mongodb credentials explicitly')
 @click.option('--db', default='', help='Specify the database to connect to')
@@ -147,7 +147,7 @@ def info(host, port, user, pwd, db):
     sdb = signaldb.SignalDb(conn)
     doc_count = sdb.count_items()
     click.echo('Object count: %d refs, %d paths, %d sheets.' % doc_count)
-    click.echo('Checkpoint: %s' % rfc3339.datetimetostr(signaldb.SignalDb.get_utc_now()))
+    click.echo('Checkpoint: %s' % rfc3339.datetimetostr(signaldb.get_utc_now()))
 
 
 @cli.command('find')
@@ -167,4 +167,3 @@ def find(filter_doc, host, port, user, pwd, db):
     sdb = signaldb.SignalDb(conn)
     instruments = sdb.find_instruments(filter_doc)
     click.echo(json.dumps(instruments, indent=4, sort_keys=True, cls=signaldb.JSONEncoderExtension))
-

@@ -102,7 +102,7 @@ class SignalDb:
         """Delete an instrument"""
         if not self.__validate_source_ticker(source, ticker):
             return False
-        now = self.get_utc_now()
+        now = signaldb.get_utc_now()
         filter_doc = {'source': source, 'ticker': ticker, 'valid_until': {'$gte': now}}
         ticker_record = self.db[self.refs_col].find_one(filter_doc)
         if ticker_record is None:
@@ -252,7 +252,7 @@ class SignalDb:
 
     def __upsert_instrument(self, instrument, props_merge_mode, series_merge_mode):
         """Update or insert an instrument"""
-        now = type(self).get_utc_now()
+        now = signaldb.get_utc_now()
         main_ref = self.__find_one_ref(instrument['tickers'], now)
 
         if main_ref is None:
@@ -424,14 +424,9 @@ class SignalDb:
             if key not in ['k', 'r', 'v']:
                 obj.pop(key, None)
 
-    @staticmethod
-    def get_utc_now():
-        now = datetime.datetime.utcnow().replace(tzinfo=None)
-        return now.replace(microsecond=(now.microsecond // 1000)*1000)
-
     def set_now(self, now):
         if now is None:
-            return self.get_utc_now()
+            return signaldb.get_utc_now()
         if not isinstance(now, datetime.datetime):
             self.logger.error('Wrong snapshot time provided.')
             return None

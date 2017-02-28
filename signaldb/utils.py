@@ -39,6 +39,11 @@ def truncate_microseconds(d: datetime.datetime):
     return d.replace(microsecond=(d.microsecond // 1000) * 1000)
 
 
+def get_utc_now():
+    now = datetime.datetime.utcnow().replace(tzinfo=None)
+    return now.replace(microsecond=(now.microsecond // 1000)*1000)
+
+
 class JSONEncoderExtension(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, datetime.datetime):
