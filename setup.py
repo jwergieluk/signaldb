@@ -16,7 +16,7 @@ setup(
     author_email='julian@wergieluk.com',
     url='http://www.wergieluk.com',
     license=license,
-    install_requires=['appdirs', 'click', 'Faker', 'nose', 'packaging', 'pymongo', 'pyparsing', 
+    install_requires=['appdirs', 'click', 'packaging', 'pymongo', 'pyparsing',
                       'python-dateutil', 'pytz', 'six', 'tonyg-rfc3339'],
     packages=find_packages(),
     classifiers=[
