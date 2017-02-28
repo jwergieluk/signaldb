@@ -161,9 +161,18 @@ class SignalDb:
             instruments.append(instrument)
         return instruments
 
+    def get_many(self, ticker_list, now=None, series_from=datetime.datetime.min, series_to=datetime.datetime.max):
+        """Get instruments from db and return them in the standard form"""
+        if type(ticker_list) is list:
+            instruments = []
+            for source, ticker in ticker_list:
+                instruments.append(self.get(source, ticker, now, series_from, series_to))
+            return instruments
+        raise ValueError('Ticker_list argument is not a list')
+
     def get(self, source: str, ticker: str, now=None,
             series_from=datetime.datetime.min, series_to=datetime.datetime.max):
-        """Find a single instrument and return it in the standard form"""
+        """Get a single instrument and return it in the standard form"""
         now = self.set_now(now)
         if now is None:
             return None
