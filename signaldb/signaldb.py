@@ -4,8 +4,8 @@ import pymongo
 import pymongo.errors
 import pytz
 from bson.objectid import ObjectId
-
 import signaldb
+import finstruments
 
 
 class SignalDb:
@@ -60,43 +60,6 @@ class SignalDb:
     def count_items(self):
         """Return a triple giving the document count in each collection"""
         return self.db[self.refs_col].count(), self.db[self.paths_col].count(), self.db[self.sheets_col].count()
-
-    @staticmethod
-    def check_instrument(instrument):
-        """Check if an instrument object has a valid type."""
-        if type(instrument) is not dict:
-            return 1
-        if not all([k in instrument.keys() for k in ['tickers', 'properties', 'series']]):
-            return 2
-        if type(instrument['tickers']) is not list:
-            return 3
-        if len(instrument['tickers']) == 0:
-            return 4
-        for ticker in instrument['tickers']:
-            if type(ticker) not in [list, tuple]:
-                return 5
-            if len(ticker) != 2:
-                return 6
-            if not all([type(ticker_part) is str for ticker_part in ticker]):
-                return 7
-            if not all([len(ticker_part) > 0 for ticker_part in ticker]):
-                return 8
-        if type(instrument['series']) is not dict:
-            return 9
-        for series_key in instrument['series']:
-            if type(series_key) is not str:
-                return 10
-            if len(series_key) == 0:
-                return 11
-            series = instrument['series'][series_key]
-            for sample in series:
-                if type(sample) not in [list, tuple]:
-                    return 12
-                if len(sample) != 2:
-                    return 13
-                if type(sample[0]) not in [datetime.date, datetime.datetime]:
-                    return 14
-        return 0
 
     def delete(self, source: str, ticker: str):
         """Delete an instrument"""
@@ -251,13 +214,13 @@ class SignalDb:
         signaldb.recursive_str_to_datetime(instruments)
         checked_instruments = []
         for i, instrument in enumerate(instruments):
-            check_result = self.check_instrument(instrument)
+            check_result = finstruments.check_instrument(instrument)
             if check_result != 0:
                 self.logger.error('Supplied instrument has wrong type (index no %d; failed test %d).' %
                                   (i + 1, check_result))
                 continue
             checked_instruments.append(instrument)
-        return consolidate_instruments(checked_instruments, props_merge_mode)
+        return finstruments.consolidate(checked_instruments, props_merge_mode)
 
     def __upsert_instrument(self, instrument, props_merge_mode, series_merge_mode):
         """Update or insert an instrument"""
@@ -316,7 +279,7 @@ class SignalDb:
             props = dict(k=main_ref['props'], r=now, v=instrument['properties'])
             update_props = True
         else:
-            update_props = merge_props(props['v'], instrument['properties'], props_merge_mode)
+            update_props = finstruments.merge_props(props['v'], instrument['properties'], props_merge_mode)
         type(self).__clean_fields_path_obj(props)
 
         series_refs = self.db[self.paths_col].find_one({'k': main_ref['series']}, sort=[('r', pymongo.DESCENDING)])
@@ -449,27 +412,6 @@ def get_series_time_bounds(series: list):
     return min(times), max(times)
 
 
-def merge_props(old_props: dict, new_props: dict, merge_mode: str):
-    """Add new properties to a given properties document."""
-    assert merge_mode in ['append', 'replace']
-    current_props_modified = False
-    if merge_mode == 'append':
-        for key in new_props:
-            if key not in old_props.keys():
-                old_props[key] = new_props[key]
-                current_props_modified = True
-    if merge_mode == 'replace':
-        for key in new_props.keys():
-            old_props[key] = new_props[key]
-            current_props_modified = True
-        for key in set(old_props.keys()) - set(new_props.keys()):
-            if key in ['series', '_id']:
-                continue
-            old_props.pop(key, None)
-            current_props_modified = True
-    return current_props_modified
-
-
 def merge_series(old_series, new_series):
     old_series_dict = dict(old_series)
     new_series_dict = dict(new_series)
@@ -485,40 +427,3 @@ def merge_series(old_series, new_series):
 def get_utc_datetime(d: datetime.datetime):
     utc_time_zone = pytz.timezone('UTC')
     return d.astimezone(utc_time_zone).replace(tzinfo=None)
-
-
-def consolidate_instruments(instruments, props_merge_mode):
-    """Return a list in which each instrument occurs exactly once"""
-    ticker_map = {}
-    properties_map = {}
-    series_map = {}
-
-    for instrument in instruments:
-        ticker = tuple(instrument['tickers'][0])
-        if ticker not in ticker_map.keys():
-            ticker_map[ticker] = instrument['tickers']
-        if ticker not in properties_map.keys():
-            properties_map[ticker] = instrument['properties']
-        else:
-            merge_props(properties_map[ticker], instrument['properties'], props_merge_mode)
-        if ticker not in series_map.keys():
-            series_map[ticker] = {}
-        for series_key in instrument['series'].keys():
-            if series_key not in series_map[ticker].keys():
-                series_map[ticker][series_key] = dict(instrument['series'][series_key])
-            else:
-                old_samples = series_map[ticker][series_key]
-                new_samples = instrument['series'][series_key]
-                for sample in new_samples:
-                    key = sample[0]
-                    old_samples[key] = sample[1]
-
-    consolidated = []
-    for ticker in ticker_map:
-        instrument = dict(tickers=ticker_map[ticker], properties=properties_map[ticker], series={})
-        for series_key in series_map[ticker].keys():
-            series_dict = series_map[ticker][series_key]
-            instrument['series'][series_key] = [[k, series_dict[k]] for k in sorted(list(series_dict.keys()))]
-        consolidated.append(instrument)
-
-    return consolidated

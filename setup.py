@@ -17,7 +17,7 @@ setup(
     url='http://www.wergieluk.com',
     license=license,
     install_requires=['appdirs', 'click', 'packaging', 'pymongo', 'pyparsing',
-                      'python-dateutil', 'pytz', 'six', 'tonyg-rfc3339'],
+                      'python-dateutil', 'pytz', 'six', 'tonyg-rfc3339', 'finstruments'],
     packages=find_packages(),
     classifiers=[
         'Development Status :: 4 - Beta',
