@@ -54,7 +54,7 @@ class JSONEncoderExtension(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-def get_db(host, port, user, pwd, db_name):
+def get_db(host, port, user, pwd, collection_name):
     time_stamp = time.perf_counter()
 
     if len(host) == 0:
@@ -63,7 +63,7 @@ def get_db(host, port, user, pwd, db_name):
     if len(port) == 0:
         logging.getLogger(__name__).error('Missing port number')
         return None
-    if len(db_name) == 0:
+    if len(collection_name) == 0:
         logging.getLogger(__name__).error('Missing signaldb collection name')
         return None
 
@@ -72,7 +72,7 @@ def get_db(host, port, user, pwd, db_name):
     except ValueError:
         logging.getLogger(__name__).error('Port must be a positive integer')
     mongo_client = pymongo.MongoClient(host, port)
-    db = mongo_client[db_name]
+    db = mongo_client[collection_name]
     if len(user) > 0:
         db.authenticate(user, pwd, source='admin')
     logging.getLogger().debug('Connection with %s:%s established in: %fs' %

@@ -33,13 +33,13 @@ pass_config = click.make_pass_decorator(Config)
 @click.option('--port', default='', envvar='mongodb_port', help='Specify mongodb port explicitly')
 @click.option('--user', default='', envvar='mongodb_user', help='Specify mongodb user explicitly')
 @click.option('--pwd', default='', envvar='mongodb_pwd', help='Specify mongodb credentials explicitly explicitly')
-@click.option('--db', default='', envvar='signaldb_collection', help='Specify the database to connect to')
+@click.option('--col', default='', envvar='signaldb_collection', help='Specify the database to connect to')
 @click.option('--debug/--no-debug', default=False, help='Show debug messages')
-def cli(ctx, host, port, user, pwd, db, debug):
+def cli(ctx, host, port, user, pwd, col, debug):
     """signaldb   ..---...~~.. """
     if debug:
         root_logger.setLevel(logging.DEBUG)
-    conn = signaldb.get_db(host, port, user, pwd, db)
+    conn = signaldb.get_db(host, port, user, pwd, col)
     if conn is None:
         raise SystemExit(1)
     sdb = signaldb.SignalDb(conn)
@@ -53,7 +53,7 @@ def cli(ctx, host, port, user, pwd, db, debug):
 @click.option('--consolidate-input/--no-consolidate-input', default=True, help='Consolidate instruments.')
 @pass_config
 def upsert(config, input_files, props_merge_mode, series_merge_mode, consolidate_input):
-    click.echo('Checkpoint: %s' % rfc3339.datetimetostr(signaldb.get_utc_now()))
+    root_logger.info('Checkpoint: %s' % rfc3339.datetimetostr(signaldb.get_utc_now()))
     time_stamp = time.perf_counter()
     try:
         instruments = read_instruments(input_files)
