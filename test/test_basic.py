@@ -15,7 +15,7 @@ class SignalDbTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Setup the connection to the test db and clean it."""
-        cls.conn = signaldb.get_db("", "", "", "", "market_test_2")
+        cls.conn = signaldb.get_db('localhost', '30001', '', '', 'market_test')
         cls.db = signaldb.SignalDb(cls.conn)
         cls.db.purge_db()
         cls.logger = logging.getLogger('')

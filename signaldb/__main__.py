@@ -138,7 +138,7 @@ def info(config):
 @cli.command('find')
 @click.argument('filter_doc', nargs=1)
 @pass_config
-def find(config, filter_doc, host, port, user, pwd, db):
+def find(config, filter_doc):
     try:
         filter_doc = json.loads(filter_doc)
     except json.decoder.JSONDecodeError:
