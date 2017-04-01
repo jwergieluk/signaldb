@@ -5,9 +5,9 @@ import datetime
 import time
 import json
 import logging
-import os
 import pymongo
 from bson.objectid import ObjectId
+import os
 
 
 def str_to_datetime(s):
@@ -54,7 +54,22 @@ class JSONEncoderExtension(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-def get_db(host, port, user, pwd, collection_name):
+def get_mondodb_conn_from_env():
+    host = os.environ['mongodb_host']
+    port = os.environ['mongodb_port']
+    user = ''
+    if 'mongodb_user' in os.environ.keys():
+        user = os.environ['mongodb_user']
+    pwd = ''
+    if 'mongodb_pwd' in os.environ.keys():
+        pwd = os.environ['mongodb_pwd']
+    col = ''
+    if 'signaldb_collection' in os.environ.keys():
+        col = os.environ['signaldb_collection']
+    return get_mongodb_conn(host, port, user, pwd, col)
+
+
+def get_mongodb_conn(host, port, user, pwd, collection_name):
     time_stamp = time.perf_counter()
 
     if len(host) == 0:

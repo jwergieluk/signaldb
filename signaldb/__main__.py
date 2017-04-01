@@ -39,7 +39,7 @@ def cli(ctx, host, port, user, pwd, col, debug):
     """signaldb   ..---...~~.. """
     if debug:
         root_logger.setLevel(logging.DEBUG)
-    conn = signaldb.get_db(host, port, user, pwd, col)
+    conn = signaldb.get_mongodb_conn(host, port, user, pwd, col)
     if conn is None:
         raise SystemExit(1)
     sdb = signaldb.SignalDb(conn)

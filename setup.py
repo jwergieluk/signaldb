@@ -2,20 +2,18 @@ from setuptools import setup, find_packages
 import subprocess
 
 
+def get_development_version():
+    git_output = subprocess.run(['git', 'rev-list', '--count', 'master'], stdout=subprocess.PIPE)
+    return '0.0.%s' % git_output.stdout.decode('utf-8').strip()
+
+with open('requirements.txt') as f:
+    requirements = [p.strip().split('=')[0] for p in f.readlines() if p[0] != '-']
+
 with open('README.md') as f:
     readme = f.read()
 
 with open('LICENSE') as f:
     license = f.read()
-
-with open('requirements.txt') as f:
-    requirements = [p.strip().split('=')[0] for p in f.readlines() if p[0] != '-']
-
-
-def get_development_version():
-    git_output = subprocess.run(['git', 'rev-list', '--count', 'master'], stdout=subprocess.PIPE)
-    return '0.0.%s' % git_output.stdout.decode('utf-8').strip()
-
 
 setup(
     name='signaldb',
