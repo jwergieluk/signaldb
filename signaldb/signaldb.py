@@ -136,7 +136,10 @@ class SignalDb:
             if series_id is not None:
                 instrument['series'] = self.__get_series(series_id, series_from, series_to, now)
             else:
-                instrument['series'] = dict()
+                instrument['series'] = {}
+            if len(instrument['series'].keys()) == 0 and \
+                    (series_from != datetime.datetime.min or series_to != datetime.datetime.max):
+                continue
             instruments.append(instrument)
         return instruments
 
@@ -171,7 +174,6 @@ class SignalDb:
             instrument['properties'] = properties_record['v']
         series = self.__get_series(ticker_record['series'], series_from, series_to, now)
         if series is None:
-            self.logger.warning('Instrument (%s,%s) has no series attached.' % (source, ticker))
             series = {}
         instrument['series'] = series
         return instrument
