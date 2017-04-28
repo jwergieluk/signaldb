@@ -212,6 +212,8 @@ class SignalDb:
         if series_merge_mode not in ['append', 'replace']:
             self.logger.error('Requested series merge mode is not supported yet.')
             return False
+        if type(instruments) is not list:
+            instruments = [instruments, ]
         if consolidate_flag:
             consolidated_instruments = self.consolidate(instruments, props_merge_mode)
         else:
