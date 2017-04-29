@@ -5,9 +5,9 @@ import datetime
 import time
 import json
 import logging
-import os
 import pymongo
 from bson.objectid import ObjectId
+import os
 
 
 def str_to_datetime(s):
@@ -54,42 +54,42 @@ class JSONEncoderExtension(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-def read_values_from_env(conf: dict):
-    status = True
-    for key in os.environ.keys() & conf.keys():
-        try:
-            conf[key] = type(conf[key])(os.environ[key])
-        except ValueError:
-            logging.getLogger().warning('Failed reading %s from environment.' % key)
-            status = False
-    return status
+def get_mondodb_conn_from_env():
+    host = os.environ['mongodb_host']
+    port = os.environ['mongodb_port']
+    user = ''
+    if 'mongodb_user' in os.environ.keys():
+        user = os.environ['mongodb_user']
+    pwd = ''
+    if 'mongodb_pwd' in os.environ.keys():
+        pwd = os.environ['mongodb_pwd']
+    col = ''
+    if 'signaldb_collection' in os.environ.keys():
+        col = os.environ['signaldb_collection']
+    return get_mongodb_conn(host, port, user, pwd, col)
 
 
-def get_db(host, port, user, pwd, db_name):
+def get_mongodb_conn(host, port, user, pwd, collection_name):
     time_stamp = time.perf_counter()
-    cred = {'sdb_host': '', 'sdb_port': 27017, 'sdb_user': '', 'sdb_pwd': '', 'sdb_db': ''}
-    read_values_from_env(cred)
 
-    if len(host) != 0:
-        cred['sdb_host'] = host
-    if len(str(port)) != 0:
-        cred['sdb_port'] = port
-    if len(user) != 0:
-        cred['sdb_user'] = user
-    if len(pwd) != 0:
-        cred['sdb_pwd'] = pwd
-    if len(db_name) != 0:
-        cred['sdb_db'] = db_name
+    if len(host) == 0:
+        logging.getLogger(__name__).error('Missing host name')
+        return None
+    if len(port) == 0:
+        logging.getLogger(__name__).error('Missing port number')
+        return None
+    if len(collection_name) == 0:
+        logging.getLogger(__name__).error('Missing signaldb collection name')
+        return None
 
-    if not all([len(str(cred[key])) > 0 for key in cred.keys()]):
-        cred['sdb_pwd'] = '*' * len(cred['sdb_pwd'])
-        logging.getLogger().error('Connection details missing: ' +
-                                  ' '.join(tuple(['%s:%s' % (key, str(cred[key])) for key in cred.keys()])))
-        raise SystemExit(1)
-
-    mongo_client = pymongo.MongoClient(cred['sdb_host'], cred['sdb_port'])
-    db = mongo_client[cred['sdb_db']]
-    db.authenticate(cred['sdb_user'], cred['sdb_pwd'], source='admin')
-    logging.getLogger().debug('Connection with %s:%s established in: %f' % (cred['sdb_host'], cred['sdb_port'],
-                                                                            time.perf_counter() - time_stamp))
+    try:
+        port = int(port)
+    except ValueError:
+        logging.getLogger(__name__).error('Port must be a positive integer')
+    mongo_client = pymongo.MongoClient(host, port)
+    db = mongo_client[collection_name]
+    if len(user) > 0:
+        db.authenticate(user, pwd, source='admin')
+    logging.getLogger().debug('Connection with %s:%s established in: %fs' %
+                              (host, port, time.perf_counter() - time_stamp))
     return db

@@ -102,7 +102,8 @@ class SignalDb:
             ticker_list.append((label['source'], label['ticker']))
         return ticker_list
 
-    def find_instruments(self, filter_doc: dict, now=None):
+    def find_instruments(self, filter_doc: dict, series_from=datetime.datetime.min, series_to=datetime.datetime.max,
+                         now=None):
         """Search for instruments based on properties"""
         now = self.set_now(now)
         if now is None:
@@ -117,10 +118,28 @@ class SignalDb:
         cursor = self.db[self.paths_col].aggregate(pipeline=pipeline)
 
         instruments = []
-        for instrument in cursor:
-            ticker_cursor = self.db[self.refs_col].find({'instr_id': instrument['_id']})
-            tickers = [(ticker['source'], ticker['ticker']) for ticker in ticker_cursor]
+        for props in cursor:
+            instrument = dict()
+            ticker_cursor = self.db[self.refs_col].find(
+                {'props': props['_id'], 'valid_from': {'$lte': now}, 'valid_until': {'$gte': now}}
+            )
+            tickers = []
+            series_id = None
+            for ticker in ticker_cursor:
+                tickers.append([ticker['source'], ticker['ticker']])
+                if series_id is None:
+                    series_id = ticker['series']
             instrument['tickers'] = tickers
+            instrument['properties'] = props['v']
+            if len(instrument['tickers']) == 0:
+                self.logger.warning('An instrument without tickers found: %s' % props['_id'])
+            if series_id is not None:
+                instrument['series'] = self.__get_series(series_id, series_from, series_to, now)
+            else:
+                instrument['series'] = {}
+            if len(instrument['series'].keys()) == 0 and \
+                    (series_from != datetime.datetime.min or series_to != datetime.datetime.max):
+                continue
             instruments.append(instrument)
         return instruments
 
@@ -149,29 +168,29 @@ class SignalDb:
         properties_record = self.db[self.paths_col].find_one({'k': ticker_record['props'], 'r': {'$lte': now}},
                                                              sort=[('r', pymongo.DESCENDING)])
         if properties_record is None:
-            self.logger.warning("The ticker (%s,%s) points to a non-existent properties document." % (source, ticker))
+            self.logger.warning('The ticker (%s,%s) points to a non-existent properties document.' % (source, ticker))
             instrument['properties'] = {}
         else:
             instrument['properties'] = properties_record['v']
-        series_refs = self.db[self.paths_col].find_one({'k': ticker_record['series'], 'r': {'$lte': now}},
-                                                       sort=[('r', pymongo.DESCENDING)])
-        if 'series_refs' is None:
-            self.logger.warning('The instrument (%s,%s) has no series attached.' % (source, ticker))
-            instrument['series'] = {}
-            return instrument
-        if len(series_refs['v']) == 0:
-            self.logger.warning('Instrument (%s,%s) has no series attached.' % (source, ticker))
-            return instrument
-
-        series = {}
-        for ref in series_refs['v'].items():
-            observations = self.__get_series(ref[1], now, series_from, series_to)
-            if len(observations) > 0:
-                series[ref[0]] = observations
-            else:
-                self.logger.warning('Series %s for the instrument (%s,%s) is empty.' % (ref[0], source, ticker))
+        series = self.__get_series(ticker_record['series'], series_from, series_to, now)
+        if series is None:
+            series = {}
         instrument['series'] = series
         return instrument
+
+    def __get_series(self, series_id, series_from, series_to, now):
+        series_refs = self.db[self.paths_col].find_one({'k': series_id, 'r': {'$lte': now}},
+                                                       sort=[('r', pymongo.DESCENDING)])
+        if series_refs is None:
+            return None
+        if len(series_refs['v']) == 0:
+            return None
+        series = {}
+        for ref in series_refs['v'].items():
+            observations = self.__get_series_by_key(ref[1], now, series_from, series_to)
+            if len(observations) > 0:
+                series[ref[0]] = observations
+        return series
 
     def __validate_source_ticker(self, source: str, ticker: str):
         return self.__validate_label(source, self.source_max_len, 'source') and \
@@ -193,6 +212,8 @@ class SignalDb:
         if series_merge_mode not in ['append', 'replace']:
             self.logger.error('Requested series merge mode is not supported yet.')
             return False
+        if type(instruments) is not list:
+            instruments = [instruments, ]
         if consolidate_flag:
             consolidated_instruments = self.consolidate(instruments, props_merge_mode)
         else:
@@ -305,7 +326,7 @@ class SignalDb:
                 if db_upper_bound < lower_bound or upper_bound < db_lower_bound:
                     merged_series = instrument['series'][key]
                 else:
-                    current_series_data = self.__get_series(series_refs['v'][key], now, lower_bound, upper_bound, )
+                    current_series_data = self.__get_series_by_key(series_refs['v'][key], now, lower_bound, upper_bound, )
                     merged_series = merge_series(current_series_data, instrument['series'][key])
                 for sample in merged_series:
                     flat_series.append({'k': series_refs['v'][key], 'r': now,
@@ -357,7 +378,7 @@ class SignalDb:
                              scenarios=scenarios_id))
         return refs
 
-    def __get_series(self, series_key, now, lower_bound=datetime.datetime.min, upper_bound=datetime.datetime.max):
+    def __get_series_by_key(self, series_key, now, lower_bound=datetime.datetime.min, upper_bound=datetime.datetime.max):
         series_aggr = []
         pipeline = list()
         pipeline.append({'$match': {'k': series_key, 'r': {'$lte': now}, '$and': [{'t': {'$lte': upper_bound}},

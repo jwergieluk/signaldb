@@ -1,5 +1,13 @@
 from setuptools import setup, find_packages
+import subprocess
 
+
+def get_development_version():
+    git_output = subprocess.run(['git', 'rev-list', '--count', 'master'], stdout=subprocess.PIPE)
+    return '0.0.%s' % git_output.stdout.decode('utf-8').strip()
+
+with open('requirements.txt') as f:
+    requirements = [p.strip().split('=')[0] for p in f.readlines() if p[0] != '-']
 
 with open('README.md') as f:
     readme = f.read()
@@ -9,15 +17,14 @@ with open('LICENSE') as f:
 
 setup(
     name='signaldb',
-    version='0.0.2',
+    version=get_development_version(),
     description='A market data system for financial time-series',
     long_description=readme,
     author='Julian Wergieluk',
     author_email='julian@wergieluk.com',
     url='http://www.wergieluk.com',
     license=license,
-    install_requires=['appdirs', 'click', 'packaging', 'pymongo', 'pyparsing',
-                      'python-dateutil', 'pytz', 'six', 'tonyg-rfc3339', 'finstruments'],
+    install_requires=requirements,
     packages=find_packages(),
     classifiers=[
         'Development Status :: 4 - Beta',
