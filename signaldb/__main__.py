@@ -2,7 +2,7 @@ import json
 import logging
 import click
 import rfc3339
-
+import gsconnector
 import signaldb
 import time
 
@@ -40,42 +40,13 @@ def upsert(input_files, props_merge_mode, series_merge_mode, host, port, user, p
     sdb = signaldb.SignalDb(conn)
     time_stamp = time.perf_counter()
     try:
-        instruments = read_instruments(input_files)
+        instruments = gsconnector.read_instruments(input_files)
     except FileNotFoundError:
         logging.getLogger(__name__).error('File not found.')
         return
     sdb.upsert(instruments, props_merge_mode=props_merge_mode, series_merge_mode=series_merge_mode,
                consolidate_flag=consolidate_input)
     logging.getLogger(__name__).debug('Total execution time : %f' % (time.perf_counter() - time_stamp))
-
-
-@cli.command('consolidate')
-@click.argument('input_files', nargs=-1)
-@click.argument('output_file', nargs=1, type=click.File('w'))
-@click.option('--debug/--no-debug', default=False, help='Show debug messages')
-def consolidate(input_files, output_file, debug):
-    if debug:
-        root_logger.setLevel(logging.DEBUG)
-    time_stamp = time.perf_counter()
-    instruments = read_instruments(input_files)
-    json.dump(instruments, output_file, cls=signaldb.JSONEncoderExtension)
-    logging.getLogger(__name__).debug('Total execution time : %f' % (time.perf_counter() - time_stamp))
-
-
-def read_instruments(input_files):
-    instruments = []
-    for input_file in input_files:
-        try:
-            with open(input_file, 'r') as f:
-                decoded_json = json.load(f)
-            if type(decoded_json) is list:
-                instruments += decoded_json
-            else:
-                instruments.append(decoded_json)
-        except json.decoder.JSONDecodeError:
-            logging.getLogger(__name__).error('Error parsing JSON in %s' % input_file)
-            continue
-    return instruments
 
 
 @cli.command('rollback')
