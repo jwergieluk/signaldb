@@ -284,7 +284,7 @@ class SignalDb:
                 flat_series.append({'k': series_refs[key], 'r': now,
                                     't': sample[0], 'v': sample[1]})
         try:
-            self.db[self.refs_col].insert(refs_to_insert)
+            self.db[self.refs_col].insert_many(refs_to_insert)
             self.db[self.paths_col].insert_one(props_obj)
             self.db[self.paths_col].insert_one(series_obj)
         except KeyboardInterrupt:

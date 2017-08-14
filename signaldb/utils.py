@@ -1,5 +1,4 @@
 import pytz
-import rfc3339
 import re
 import datetime
 import time
@@ -8,6 +7,15 @@ import logging
 import pymongo
 from bson.objectid import ObjectId
 import os
+import rfc3339
+
+
+def rfc3339_datetime_to_str(d: datetime.datetime):
+    return rfc3339.datetimetostr(d)
+
+
+def rfc3339_str_to_datetime(s: str):
+    return rfc3339.parse_datetime(s)
 
 
 def str_to_datetime(s):

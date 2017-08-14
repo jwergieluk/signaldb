@@ -1,8 +1,6 @@
 import json
 import logging
 import click
-import rfc3339
-import gsconnector
 import signaldb
 import time
 
@@ -56,7 +54,7 @@ def upsert(config, input_files, props_merge_mode, series_merge_mode, consolidate
     root_logger.info('Checkpoint: %s' % rfc3339.datetimetostr(signaldb.get_utc_now()))
     time_stamp = time.perf_counter()
     try:
-        instruments = gsconnector.read_instruments(input_files)
+        instruments = read_instruments(input_files)
     except FileNotFoundError:
         logging.getLogger(__name__).error('File not found.')
         return
@@ -121,7 +119,7 @@ def list_tickers(config, source):
 def info(config):
     doc_count = config.sdb.count_items()
     click.echo('Object count: %d refs, %d paths, %d sheets.' % doc_count)
-    click.echo('Checkpoint: %s' % rfc3339.datetimetostr(signaldb.get_utc_now()))
+    click.echo('Checkpoint: %s' % str(signaldb.get_utc_now()))
 
 
 @cli.command('find')
