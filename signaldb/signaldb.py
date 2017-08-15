@@ -5,7 +5,6 @@ import pymongo.errors
 import pytz
 from bson.objectid import ObjectId
 import signaldb
-import finstruments
 
 
 class SignalDb:
@@ -235,13 +234,13 @@ class SignalDb:
         signaldb.recursive_str_to_datetime(instruments)
         checked_instruments = []
         for i, instrument in enumerate(instruments):
-            check_result = finstruments.check_instrument(instrument)
+            check_result = signaldb.check_instrument(instrument)
             if check_result != 0:
                 self.logger.error('Supplied instrument has wrong type (index no %d; failed test %d).' %
                                   (i + 1, check_result))
                 continue
             checked_instruments.append(instrument)
-        return finstruments.consolidate(checked_instruments, props_merge_mode)
+        return signaldb.consolidate(checked_instruments, props_merge_mode)
 
     def __upsert_instrument(self, instrument, props_merge_mode, series_merge_mode):
         """Update or insert an instrument"""
@@ -300,7 +299,7 @@ class SignalDb:
             props = dict(k=main_ref['props'], r=now, v=instrument['properties'])
             update_props = True
         else:
-            update_props = finstruments.merge_props(props['v'], instrument['properties'], props_merge_mode)
+            update_props = signaldb.merge_props(props['v'], instrument['properties'], props_merge_mode)
         type(self).__clean_fields_path_obj(props)
 
         series_refs = self.db[self.paths_col].find_one({'k': main_ref['series']}, sort=[('r', pymongo.DESCENDING)])
@@ -378,7 +377,8 @@ class SignalDb:
                              scenarios=scenarios_id))
         return refs
 
-    def __get_series_by_key(self, series_key, now, lower_bound=datetime.datetime.min, upper_bound=datetime.datetime.max):
+    def __get_series_by_key(self, series_key, now, lower_bound=datetime.datetime.min,
+                            upper_bound=datetime.datetime.max):
         series_aggr = []
         pipeline = list()
         pipeline.append({'$match': {'k': series_key, 'r': {'$lte': now}, '$and': [{'t': {'$lte': upper_bound}},
