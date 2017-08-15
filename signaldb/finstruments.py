@@ -117,5 +117,10 @@ class Finstrument:
             self._series[series_name] = []
         self._series[series_name].append((observation_time, observation_value))
 
+    def attach_series(self, series_name: str, series_data: list):
+        assert len(series_name) > 0
+        assert len(series_data) > 0
+        self._series[series_name] = series_data
+
     def dump(self):
         return {'tickers': self._tickers, 'properties': self._properties, 'series': self._series}
