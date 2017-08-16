@@ -51,7 +51,7 @@ def cli(ctx, host, port, user, pwd, col, debug):
 @click.option('--consolidate-input/--no-consolidate-input', default=True, help='Consolidate instruments.')
 @pass_config
 def upsert(config, input_files, props_merge_mode, series_merge_mode, consolidate_input):
-    root_logger.info('Checkpoint: %s' % rfc3339.datetimetostr(signaldb.get_utc_now()))
+    root_logger.info('Checkpoint: %s' % signaldb.rfc3339_datetime_to_str(signaldb.get_utc_now()))
     time_stamp = time.perf_counter()
     try:
         instruments = read_instruments(input_files)
@@ -133,3 +133,7 @@ def find(config, filter_doc):
         return
     instruments = config.sdb.find_instruments(filter_doc)
     click.echo(json.dumps(instruments, indent=4, sort_keys=True, cls=signaldb.JSONEncoderExtension))
+
+
+if __name__ == '__main__':
+    cli()
