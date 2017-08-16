@@ -2,7 +2,7 @@ import datetime
 
 
 def check_instrument(instrument):
-    """Check if an instrument object has a valid type."""
+    """Check if a finstrument object has a valid type."""
     if type(instrument) is not dict:
         return 1
     if not all([k in instrument.keys() for k in ['tickers', 'properties', 'series']]):
@@ -35,6 +35,11 @@ def check_instrument(instrument):
                 return 13
             if type(sample[0]) not in [datetime.date, datetime.datetime]:
                 return 14
+        if '.' in series_key or '$' in series_key:
+            return 15
+    for prop_key in instrument['properties'].keys():
+        if '.' in series_key or '$' in prop_key:
+            return 16
     return 0
 
 
