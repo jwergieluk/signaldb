@@ -38,7 +38,7 @@ def check_instrument(instrument):
         if '.' in series_key or '$' in series_key:
             return 15
     for prop_key in instrument['properties'].keys():
-        if '.' in series_key or '$' in prop_key:
+        if '.' in prop_key or '$' in prop_key:
             return 16
     return 0
 
