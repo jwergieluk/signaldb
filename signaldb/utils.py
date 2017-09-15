@@ -1,4 +1,4 @@
-import pytz
+import signaldb
 import re
 import datetime
 import time
@@ -7,21 +7,10 @@ import logging
 import pymongo
 from bson.objectid import ObjectId
 import os
-import rfc3339
-
-
-def rfc3339_datetime_to_str(d: datetime.datetime):
-    return rfc3339.datetimetostr(d)
-
-
-def rfc3339_str_to_datetime(s: str):
-    return rfc3339.parse_datetime(s)
 
 
 def str_to_datetime(s):
-    d = rfc3339.parse_datetime(s)
-    utc_time_zone = pytz.timezone('UTC')
-    d = d.astimezone(utc_time_zone).replace(tzinfo=None)
+    d = signaldb.rfc3339_str_to_datetime(s)
     return d.replace(microsecond=(d.microsecond // 1000)*1000)
 
 
@@ -55,7 +44,7 @@ def get_utc_now():
 class JSONEncoderExtension(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, datetime.datetime):
-            return rfc3339.datetimetostr(obj)
+            return signaldb.rfc3339_datetime_to_str(obj)
         if isinstance(obj, ObjectId):
             return 'ObjectId(%s)' % str(obj)
         # Let the base class default method raise the TypeError

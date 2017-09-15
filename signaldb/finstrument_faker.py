@@ -1,11 +1,25 @@
 import datetime
 import random
-import faker
 
 
-class InstrumentFaker:
+class Fake:
+    letters = 'Racevgav LopNiskEl MabEcNiOg9 liubUpbi'
+
+    @classmethod
+    def company(cls):
+        return "".join(random.choices(cls.letters, k=20)).strip().capitalize()
+
+    @classmethod
+    def country_code(cls):
+        return "".join(random.choices(cls.letters, k=2)).upper()
+
+    @classmethod
+    def id(cls, k):
+        return "".join(random.choices('ABCDEF1234567890', k=k)).upper()
+
+
+class FinstrumentFaker:
     """Random financial instrument generator"""
-    fake = faker.Faker()
     time_series_len = 365
 
     @classmethod
@@ -29,22 +43,22 @@ class InstrumentFaker:
     @classmethod
     def get_equity_props(cls):
         properties = {'category': 'equity',
-                      'company_name': cls.fake.company(),
-                      'country_code': cls.fake.country_code()}
+                      'company_name': Fake.company(),
+                      'country_code': Fake.country_code()}
         return properties
 
     @classmethod
     def get_equity_option_props(cls):
         properties = {'category': 'equity-option',
-                      'underlying_entity': cls.fake.company(),
+                      'underlying_entity': Fake.company(),
                       'strike': random.expovariate(100),
-                      'maturity': cls.fake.date_time_this_century(after_now=True),
+                      'maturity': datetime.datetime(2035, 7, 11),
                       'option_type': random.choice(['put', 'call'])}
         return properties
 
     @classmethod
     def get_tickers(cls):
-        tickers = [['ISIN', cls.fake.md5().upper()[:12]], ['BB_CODE', cls.fake.md5().upper()]]
+        tickers = [['ISIN', Fake.id(12)], ['BB_CODE', Fake.id(18)]]
         return tickers
 
     @classmethod

@@ -1,10 +1,7 @@
-rfc3339
 appdirs
 click
-Faker
 packaging
 pymongo
 pyparsing
 python-dateutil
-pytz
 six

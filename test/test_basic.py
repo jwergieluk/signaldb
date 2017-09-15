@@ -6,9 +6,7 @@ import datetime
 import logging
 import time
 import unittest
-
 import signaldb
-import finstruments
 
 
 class SignalDbTest(unittest.TestCase):
@@ -34,7 +32,7 @@ class SignalDbTest(unittest.TestCase):
 
     def test_insert_idempotence(self):
         self.db.purge_db()
-        instruments = finstruments.InstrumentFaker.get(self.instruments_no)
+        instruments = signaldb.FinstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
         doc_count = self.db.count_items()
         self.assertTrue(self.db.upsert(instruments))
@@ -43,7 +41,7 @@ class SignalDbTest(unittest.TestCase):
     def test_delete_ticker(self):
         self.db.purge_db()
         now0 = signaldb.get_utc_now()
-        instruments = finstruments.InstrumentFaker.get(self.instruments_no)
+        instruments = signaldb.FinstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
 
         self.assertFalse(self.db.delete('Nonexistent-source', 'Nonexistent-ticker'))
@@ -65,7 +63,7 @@ class SignalDbTest(unittest.TestCase):
     def test_list_tickers(self):
         self.db.purge_db()
         now0 = signaldb.get_utc_now()
-        instruments = finstruments.InstrumentFaker.get(self.instruments_no)
+        instruments = signaldb.FinstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
 
         # Check if erroneous queries return None
@@ -85,7 +83,7 @@ class SignalDbTest(unittest.TestCase):
         self.assertListEqual(self.db.list_tickers(now=now0), [])
 
     def test_get_nonexistent(self):
-        instruments = finstruments.InstrumentFaker.get(self.instruments_no)
+        instruments = signaldb.FinstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
 
         self.assertIsNone(self.db.get('', 'null_ticker'))
@@ -94,19 +92,19 @@ class SignalDbTest(unittest.TestCase):
         self.assertIsNone(self.db.get('my_source', 'null_ticker'))
 
     def test_upsert_unsupported_merge_mode(self):
-        instruments = finstruments.InstrumentFaker.get(1)
+        instruments = signaldb.FinstrumentFaker.get(1)
         self.assertFalse(self.db.upsert(instruments, props_merge_mode='unsupported'))
         self.assertFalse(self.db.upsert(instruments, series_merge_mode='unsupported'))
 
     def test_upsert_props_append(self):
         """Test the append mode for updating properties"""
-        instruments = finstruments.InstrumentFaker.get(self.instruments_no)
+        instruments = signaldb.FinstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
         now0 = signaldb.get_utc_now()
         instruments0 = copy.deepcopy(instruments)
 
         for instrument in instruments:
-            instrument['properties']['extra_property'] = finstruments.InstrumentFaker.fake.phone_number()
+            instrument['properties']['extra_property'] = 1234567
         self.assertTrue(self.db.upsert(instruments, 'append'))
         self.compare_instruments_with_db(instruments)
         now1 = signaldb.get_utc_now()
@@ -123,13 +121,13 @@ class SignalDbTest(unittest.TestCase):
 
     def test_upsert_props_replace(self):
         """Test the replace mode for updating properties"""
-        instruments = finstruments.InstrumentFaker.get(self.instruments_no)
+        instruments = signaldb.FinstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
         now0 = signaldb.get_utc_now()
         instruments0 = copy.deepcopy(instruments)
 
         for instrument in instruments:
-            instrument['properties']['extra_property'] = finstruments.InstrumentFaker.fake.phone_number()
+            instrument['properties']['extra_property'] = 1234567
             instrument['properties'].pop('company_name', None)
         self.assertTrue(self.db.upsert(instruments, 'replace'))
         self.compare_instruments_with_db(instruments)
@@ -137,13 +135,13 @@ class SignalDbTest(unittest.TestCase):
 
     def test_upsert_update_series(self):
         """Test adding, modifying and removing series"""
-        instruments = finstruments.InstrumentFaker.get(self.instruments_no)
+        instruments = signaldb.FinstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
         now0 = signaldb.get_utc_now()
         instruments0 = copy.deepcopy(instruments)
 
         for instrument in instruments:
-            instrument['series']['new_series'] = finstruments.InstrumentFaker.get_series()
+            instrument['series']['new_series'] = signaldb.FinstrumentFaker.get_series()
         self.assertTrue(self.db.upsert(instruments))
         self.compare_instruments_with_db(instruments)
         now1 = signaldb.get_utc_now()
@@ -165,7 +163,7 @@ class SignalDbTest(unittest.TestCase):
         instruments3 = copy.deepcopy(instruments)
 
         for instrument in instruments:
-            instrument['series']['new_series_2'] = finstruments.InstrumentFaker.get_series()
+            instrument['series']['new_series_2'] = signaldb.FinstrumentFaker.get_series()
         instruments_snapshot = copy.deepcopy(instruments)
         for instrument in instruments:
             instrument['series'].pop('price', None)
@@ -179,22 +177,22 @@ class SignalDbTest(unittest.TestCase):
 
     def test_upsert_and_check(self):
         """Insert a bunch of instruments, retrieve them back from the db and test if we've got the same data"""
-        instruments = finstruments.InstrumentFaker.get(self.instruments_no)
+        instruments = signaldb.FinstrumentFaker.get(self.instruments_no)
         self.assertTrue(self.db.upsert(instruments))
         self.compare_instruments_with_db(instruments)
 
-    def test_get_series_slice(self):
-        """Test the parameters series_from and series_to of the get function"""
-        instruments = finstruments.InstrumentFaker.get(self.instruments_no)
-        self.assertTrue(self.db.upsert(instruments))
-        series_from = signaldb.str_to_datetime('1995-03-01T00:00:00Z')
-        series_to = signaldb.str_to_datetime('1995-04-01T00:00:00Z')
-        for instrument in instruments:
-            for series_key in instrument['series']:
-                series = instrument['series'][series_key]
-                instrument['series'][series_key] = [tv for tv in series if series_from <= tv[0] <= series_to]
-        now = signaldb.get_utc_now()
-        self.compare_instruments_with_db(instruments, now, series_from, series_to)
+    # def test_get_series_slice(self):
+    #     """Test the parameters series_from and series_to of the get function"""
+    #     instruments = signaldb.FinstrumentFaker.get(self.instruments_no)
+    #     self.assertTrue(self.db.upsert(instruments))
+    #     series_from = signaldb.str_to_datetime('1995-03-01T00:00:00Z')
+    #     series_to = signaldb.str_to_datetime('1995-04-01T00:00:00Z')
+    #     for instrument in instruments:
+    #         for series_key in instrument['series']:
+    #             series = instrument['series'][series_key]
+    #             instrument['series'][series_key] = [tv for tv in series if series_from <= tv[0] <= series_to]
+    #     now = signaldb.get_utc_now()
+    #     self.compare_instruments_with_db(instruments, now, series_from, series_to)
 
     def compare_instruments_with_db(self, instruments: list, now=None,
                                     lower_bound=datetime.datetime.min, upper_bound=datetime.datetime.max):
@@ -210,7 +208,7 @@ class SignalDbTest(unittest.TestCase):
                                                      series_from=lower_bound, series_to=upper_bound)
                 else:
                     instrument_from_db = self.db.get(ticker[0], ticker[1], now=now)
-                self.assertEqual(finstruments.check_instrument(instrument_from_db), 0)
+                self.assertEqual(signaldb.check_instrument(instrument_from_db), 0)
 
                 """Test properties"""
                 properties_from_db = instrument_from_db['properties']
