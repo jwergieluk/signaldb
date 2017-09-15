@@ -5,7 +5,6 @@ import signaldb
 
 class SimplisticTest(unittest.TestCase):
     def test_consolidate_idempotence(self):
-        """Consolidate returns unmodified input if it's already consolidated"""
         instruments = signaldb.FinstrumentFaker.get(3)
         instrument_snapshot = copy.deepcopy(instruments)
 

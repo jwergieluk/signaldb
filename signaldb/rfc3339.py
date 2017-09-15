@@ -12,17 +12,17 @@ def rfc3339_str_to_datetime(s: str):
     if s[-1] != 'Z' or s[10] != 'T':
         raise ValueError(f'{s} is not an RFC3339 datetime.')
     try:
-        d.replace(year=int(s[0:4]))
-        d.replace(month=int(s[5:7]))
-        d.replace(day=int(s[8:10]))
-        d.replace(hour=int(s[11:13]))
-        d.replace(minute=int(s[14:16]))
-        d.replace(second=int(s[17:19]))
+        d = d.replace(year=int(s[0:4]))
+        d = d.replace(month=int(s[5:7]))
+        d = d.replace(day=int(s[8:10]))
+        d = d.replace(hour=int(s[11:13]))
+        d = d.replace(minute=int(s[14:16]))
+        d = d.replace(second=int(s[17:19]))
         if s[19] == '.' and len(s) > 21:
             ms_str = s[20:-1]
-            d.replace(microsecond=int(ms_str)*(10**(6-len(ms_str))))
+            d = d.replace(microsecond=int(ms_str)*(10**(6-len(ms_str))))
         else:
-            d.replace(microsecond=0)
+            d = d.replace(microsecond=0)
     except ValueError:
         raise ValueError(f'{s} is not an RFC3339 datetime.')
     return d
