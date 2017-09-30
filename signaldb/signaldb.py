@@ -232,7 +232,8 @@ class SignalDb:
         if type(instruments) is not list:
             self.logger.error('upsert: supplied instrument data is not a list.')
             return None
-        signaldb.recursive_str_to_datetime(instruments)
+        xauldron.rfc3339.recursive_str_to_datetime(instruments)
+        signaldb.recursive_truncate_microseconds(instruments)
         checked_instruments = []
         for i, instrument in enumerate(instruments):
             check_result = xauldron.finstruments.check(instrument)
