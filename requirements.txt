@@ -1,3 +1,4 @@
+pytz
 appdirs
 click
 packaging
@@ -5,3 +6,4 @@ pymongo
 pyparsing
 python-dateutil
 six
+xauldron

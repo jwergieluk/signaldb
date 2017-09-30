@@ -1,6 +1,7 @@
 import json
 import logging
 import click
+import xauldron
 import signaldb
 import time
 
@@ -51,7 +52,7 @@ def cli(ctx, host, port, user, pwd, col, debug):
 @click.option('--consolidate-input/--no-consolidate-input', default=True, help='Consolidate instruments.')
 @pass_config
 def upsert(config, input_files, props_merge_mode, series_merge_mode, consolidate_input):
-    root_logger.info('Checkpoint: %s' % signaldb.rfc3339_datetime_to_str(signaldb.get_utc_now()))
+    root_logger.info('Checkpoint: %s' % xauldron.rfc3339.datetime_to_str(signaldb.get_utc_now()))
     time_stamp = time.perf_counter()
     try:
         instruments = read_instruments(input_files)

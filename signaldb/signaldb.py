@@ -3,6 +3,7 @@ import logging
 import pymongo
 import pymongo.errors
 import pytz
+import xauldron
 from bson.objectid import ObjectId
 import signaldb
 
@@ -234,13 +235,13 @@ class SignalDb:
         signaldb.recursive_str_to_datetime(instruments)
         checked_instruments = []
         for i, instrument in enumerate(instruments):
-            check_result = signaldb.check_instrument(instrument)
+            check_result = xauldron.finstruments.check(instrument)
             if check_result != 0:
                 self.logger.error('Supplied instrument has wrong type (index no %d; failed test %d).' %
                                   (i + 1, check_result))
                 continue
             checked_instruments.append(instrument)
-        return signaldb.consolidate(checked_instruments, props_merge_mode)
+        return xauldron.finstruments.consolidate(checked_instruments, props_merge_mode)
 
     def __upsert_instrument(self, instrument, props_merge_mode, series_merge_mode):
         """Update or insert an instrument"""
@@ -299,7 +300,7 @@ class SignalDb:
             props = dict(k=main_ref['props'], r=now, v=instrument['properties'])
             update_props = True
         else:
-            update_props = signaldb.merge_props(props['v'], instrument['properties'], props_merge_mode)
+            update_props = xauldron.finstruments.merge_props(props['v'], instrument['properties'], props_merge_mode)
         type(self).__clean_fields_path_obj(props)
 
         series_refs = self.db[self.paths_col].find_one({'k': main_ref['series']}, sort=[('r', pymongo.DESCENDING)])
@@ -325,7 +326,8 @@ class SignalDb:
                 if db_upper_bound < lower_bound or upper_bound < db_lower_bound:
                     merged_series = instrument['series'][key]
                 else:
-                    current_series_data = self.__get_series_by_key(series_refs['v'][key], now, lower_bound, upper_bound, )
+                    current_series_data = self.__get_series_by_key(series_refs['v'][key],
+                                                                   now, lower_bound, upper_bound, )
                     merged_series = merge_series(current_series_data, instrument['series'][key])
                 for sample in merged_series:
                     flat_series.append({'k': series_refs['v'][key], 'r': now,

@@ -1,4 +1,4 @@
-import signaldb
+import xauldron
 import re
 import datetime
 import time
@@ -10,7 +10,7 @@ import os
 
 
 def str_to_datetime(s):
-    d = signaldb.rfc3339_str_to_datetime(s)
+    d = xauldron.rfc3339.str_to_datetime(s)
     return d.replace(microsecond=(d.microsecond // 1000)*1000)
 
 
@@ -44,7 +44,7 @@ def get_utc_now():
 class JSONEncoderExtension(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, datetime.datetime):
-            return signaldb.rfc3339_datetime_to_str(obj)
+            return xauldron.rfc3339.datetime_to_str(obj)
         if isinstance(obj, ObjectId):
             return 'ObjectId(%s)' % str(obj)
         # Let the base class default method raise the TypeError
