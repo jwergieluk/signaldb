@@ -47,7 +47,7 @@ class JSONEncoderExtension(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-def get_mondodb_conn_from_env():
+def get_mondodb_conn_from_env(signaldb_collection=None):
     host = os.environ['mongodb_host']
     port = os.environ['mongodb_port']
     user = ''
@@ -56,10 +56,9 @@ def get_mondodb_conn_from_env():
     pwd = ''
     if 'mongodb_pwd' in os.environ.keys():
         pwd = os.environ['mongodb_pwd']
-    col = ''
-    if 'signaldb_collection' in os.environ.keys():
-        col = os.environ['signaldb_collection']
-    return get_mongodb_conn(host, port, user, pwd, col)
+    if signaldb_collection is None and 'signaldb_collection' in os.environ.keys():
+        signaldb_collection = os.environ['signaldb_collection']
+    return get_mongodb_conn(host, port, user, pwd, signaldb_collection)
 
 
 def get_mongodb_conn(host, port, user, pwd, collection_name):
