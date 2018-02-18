@@ -4,6 +4,7 @@ import click
 import xauldron.finstruments
 import signaldb
 import time
+import cProfile
 
 root_logger = logging.getLogger('')
 root_logger.setLevel(logging.INFO)
@@ -121,4 +122,5 @@ def find(config, filter_doc):
 
 
 if __name__ == '__main__':
-    cli()
+    cProfile.run('cli()')
+    #cli()
