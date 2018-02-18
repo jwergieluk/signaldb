@@ -207,7 +207,8 @@ class SignalDb:
             self.logger.error('Given %s is empty' % label_name)
         return True
 
-    def upsert(self, instruments, props_merge_mode='append', series_merge_mode='append', consolidate_flag=True):
+    def upsert(self, instruments, props_merge_mode='append', series_merge_mode='append',
+               consolidate_flag=True):
         """Update or insert a list of instruments."""
         if series_merge_mode not in ['append', 'replace']:
             self.logger.error('Requested series merge mode is not supported yet.')
@@ -233,7 +234,6 @@ class SignalDb:
             self.logger.error('upsert: supplied instrument data is not a list.')
             return None
         xauldron.rfc3339.recursive_str_to_datetime(instruments)
-        signaldb.recursive_truncate_microseconds(instruments)
         checked_instruments = []
         for i, instrument in enumerate(instruments):
             check_result = xauldron.finstruments.check(instrument)
@@ -383,7 +383,7 @@ class SignalDb:
     def __get_series_by_key(self, series_key, now, lower_bound=datetime.datetime.min,
                             upper_bound=datetime.datetime.max):
         series_aggr = []
-        pipeline = list()
+        pipeline = list() # TODO array
         pipeline.append({'$match': {'k': series_key, 'r': {'$lte': now}, '$and': [{'t': {'$lte': upper_bound}},
                                                                                   {'t': {'$gte': lower_bound}}]}})
         pipeline.append({'$sort': {'r': pymongo.ASCENDING}})
@@ -439,7 +439,7 @@ def get_series_time_bounds(series: list):
 def merge_series(old_series, new_series):
     old_series_dict = dict(old_series)
     new_series_dict = dict(new_series)
-    series = []
+    series = [] # TODO array
     for t in new_series_dict.keys():
         if t in old_series_dict.keys():
             if old_series_dict[t] == new_series_dict[t]:
