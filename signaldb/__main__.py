@@ -1,9 +1,10 @@
 import json
 import logging
 import click
-import xauldron
+import xauldron.finstruments
 import signaldb
 import time
+import cProfile
 
 root_logger = logging.getLogger('')
 root_logger.setLevel(logging.INFO)
@@ -55,29 +56,13 @@ def upsert(config, input_files, props_merge_mode, series_merge_mode, consolidate
     root_logger.info('Checkpoint: %s' % xauldron.rfc3339.datetime_to_str(signaldb.get_utc_now()))
     time_stamp = time.perf_counter()
     try:
-        instruments = read_instruments(input_files)
+        instruments = xauldron.finstruments.read_json(input_files)
     except FileNotFoundError:
         logging.getLogger(__name__).error('File not found.')
         return
     config.sdb.upsert(instruments, props_merge_mode=props_merge_mode, series_merge_mode=series_merge_mode,
                       consolidate_flag=consolidate_input)
     root_logger.debug('Total execution time : %f' % (time.perf_counter() - time_stamp))
-
-
-def read_instruments(input_files):
-    instruments = []
-    for input_file in input_files:
-        try:
-            with open(input_file, 'r') as f:
-                decoded_json = json.load(f)
-            if type(decoded_json) is list:
-                instruments += decoded_json
-            else:
-                instruments.append(decoded_json)
-        except json.decoder.JSONDecodeError:
-            root_logger.error('Error parsing JSON in %s' % input_file)
-            continue
-    return instruments
 
 
 @cli.command('rollback')
@@ -137,4 +122,5 @@ def find(config, filter_doc):
 
 
 if __name__ == '__main__':
-    cli()
+    cProfile.run('cli()')
+    #cli()
